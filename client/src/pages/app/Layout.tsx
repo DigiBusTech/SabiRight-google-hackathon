@@ -15,14 +15,29 @@ import {
 import { useState } from "react";
 import { Button } from "@/components/ui/button";
 import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar";
+import { useAuth } from "@/context/AuthContext";
+import { auth } from "@/lib/firebase";
+import { signOut } from "firebase/auth";
 
 interface AppLayoutProps {
   children: React.ReactNode;
 }
 
 export default function AppLayout({ children }: AppLayoutProps) {
-  const [location] = useLocation();
+  const [location, setLocation] = useLocation();
   const [isSidebarOpen, setIsSidebarOpen] = useState(false);
+  const { user, loading } = useAuth();
+
+  // Protect Route
+  if (!loading && !user) {
+      setLocation("/auth/login");
+      return null;
+  }
+
+  const handleSignOut = async () => {
+      await signOut(auth);
+      setLocation("/");
+  };
 
   const navItems = [
     { icon: LayoutDashboard, label: "Dashboard", href: "/app" },
@@ -88,24 +103,27 @@ export default function AppLayout({ children }: AppLayoutProps) {
           <div className="bg-slate-800/50 rounded-xl p-4 mb-4">
              <div className="flex items-center gap-3 mb-2">
                 <Avatar className="h-10 w-10 border-2 border-primary">
-                  <AvatarImage src="https://i.pravatar.cc/100?img=32" />
-                  <AvatarFallback>UY</AvatarFallback>
+                  <AvatarImage src={user?.photoURL || ""} />
+                  <AvatarFallback>{user?.displayName?.charAt(0) || "U"}</AvatarFallback>
                 </Avatar>
-                <div>
-                  <p className="font-bold text-sm">Uyouko Ekpo</p>
-                  <p className="text-xs text-slate-400">Verified Citizen</p>
+                <div className="overflow-hidden">
+                  <p className="font-bold text-sm truncate">{user?.displayName || "Citizen"}</p>
+                  <p className="text-xs text-slate-400 truncate">{user?.email}</p>
                 </div>
              </div>
              <div className="flex justify-between items-center text-xs text-slate-400">
-                <span>Credit Balance</span>
-                <span className="text-primary font-bold">2,400 CR</span>
+                <span>Verified</span>
+                <span className="text-primary font-bold"><ShieldCheck className="inline h-3 w-3"/> Active</span>
              </div>
           </div>
-          <Link href="/">
-             <Button variant="ghost" className="w-full justify-start text-slate-400 hover:text-white hover:bg-white/5 gap-3">
-               <LogOut className="h-5 w-5" /> Sign Out
-             </Button>
-          </Link>
+          
+          <Button 
+            variant="ghost" 
+            className="w-full justify-start text-slate-400 hover:text-white hover:bg-white/5 gap-3"
+            onClick={handleSignOut}
+          >
+            <LogOut className="h-5 w-5" /> Sign Out
+          </Button>
         </div>
       </aside>
 

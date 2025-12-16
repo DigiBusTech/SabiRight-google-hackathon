@@ -3,14 +3,18 @@ import { AlertTriangle, MapPin, Briefcase, Calendar, ChevronRight, ShieldCheck, 
 import { Button } from "@/components/ui/button";
 import { MOCK_JOBS } from "@/lib/constants";
 import { Link } from "wouter";
+import { useAuth } from "@/context/AuthContext";
 
 export default function Dashboard() {
+  const { user } = useAuth();
+  const userName = user?.displayName || "Citizen";
+
   return (
     <div className="space-y-8">
       {/* Welcome Section */}
       <div className="flex flex-col md:flex-row gap-6 justify-between items-start md:items-end">
         <div>
-          <h2 className="text-3xl font-bold tracking-tight">Good Morning, Uyouko</h2>
+          <h2 className="text-3xl font-bold tracking-tight">Good Morning, {userName}</h2>
           <p className="text-slate-500 mt-1">Here's your civic overview for today.</p>
         </div>
         <div className="flex gap-3">

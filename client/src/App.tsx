@@ -12,11 +12,13 @@ import CivicGuard from "@/pages/app/Civic";
 import Marketplace from "@/pages/app/Marketplace";
 import Jobs from "@/pages/app/Jobs";
 import Forum from "@/pages/app/Forum";
+import Login from "@/pages/auth/Login";
 
 function Router() {
   return (
     <Switch>
       <Route path="/" component={Home} />
+      <Route path="/auth/login" component={Login} />
       
       {/* App Routes */}
       <Route path="/app">

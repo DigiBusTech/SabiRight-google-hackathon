@@ -1,10 +1,77 @@
+import { useState, useEffect } from "react";
 import { Card, CardContent } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
-import { MOCK_FORUM_TOPICS } from "@/lib/constants";
-import { MessageSquare, Eye, ThumbsUp, MoreHorizontal } from "lucide-react";
+import { MessageSquare, Eye, ThumbsUp, MoreHorizontal, Flag, Trash2, Send } from "lucide-react";
 import { Avatar, AvatarFallback } from "@/components/ui/avatar";
+import { Input } from "@/components/ui/input";
+import { db, FIREBASE_APP_ID, auth } from "@/lib/firebase";
+import { collection, onSnapshot, addDoc, serverTimestamp, doc, updateDoc, increment, arrayUnion, orderBy, query } from "firebase/firestore";
+import { useAuth } from "@/context/AuthContext";
+
+interface Comment {
+    id: string;
+    text: string;
+    author: string;
+    timestamp: any;
+}
+
+interface Post {
+    id: string;
+    title?: string; // Optional if existing data doesn't have it
+    content: string;
+    author: string;
+    city: string;
+    upvotes: number;
+    downvotes: number;
+    comments: Comment[];
+    timestamp: any;
+}
 
 export default function Forum() {
+  const { user } = useAuth();
+  const [posts, setPosts] = useState<Post[]>([]);
+  const [newPostContent, setNewPostContent] = useState("");
+
+  useEffect(() => {
+    const q = query(
+        collection(db, 'artifacts', FIREBASE_APP_ID, 'public', 'data', 'forum_posts'),
+        orderBy('timestamp', 'desc')
+    );
+    const unsubscribe = onSnapshot(q, (snapshot) => {
+        const postsData = snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() } as Post));
+        setPosts(postsData);
+    });
+    return () => unsubscribe();
+  }, []);
+
+  const handleCreatePost = async (e: React.FormEvent) => {
+      e.preventDefault();
+      if (!newPostContent.trim()) return;
+
+      try {
+          await addDoc(collection(db, 'artifacts', FIREBASE_APP_ID, 'public', 'data', 'forum_posts'), {
+              content: newPostContent,
+              city: "Lagos", // Mock
+              author: user?.displayName || "Citizen",
+              userId: user?.uid || "anon",
+              upvotes: 0,
+              downvotes: 0,
+              comments: [],
+              timestamp: serverTimestamp()
+          });
+          setNewPostContent("");
+      } catch (err) {
+          console.error("Error creating post", err);
+      }
+  };
+
+  const handleVote = async (postId: string, type: 'up' | 'down') => {
+      const postRef = doc(db, 'artifacts', FIREBASE_APP_ID, 'public', 'data', 'forum_posts', postId);
+      await updateDoc(postRef, {
+          [type === 'up' ? 'upvotes' : 'downvotes']: increment(1)
+      });
+  };
+
   return (
     <div className="space-y-8">
       <div className="flex justify-between items-center">
@@ -12,41 +79,49 @@ export default function Forum() {
           <h2 className="text-2xl font-bold tracking-tight">Community Forum</h2>
           <p className="text-slate-500">Verified discussions by verified citizens.</p>
         </div>
-        <Button>New Topic</Button>
       </div>
 
+      {/* Create Post */}
+      <Card className="border-primary/20 bg-primary/5">
+          <CardContent className="p-4">
+              <form onSubmit={handleCreatePost} className="flex gap-4">
+                  <Input 
+                    value={newPostContent}
+                    onChange={e => setNewPostContent(e.target.value)}
+                    placeholder="Share a thought or report..." 
+                    className="bg-white"
+                  />
+                  <Button type="submit">Post</Button>
+              </form>
+          </CardContent>
+      </Card>
+
       <div className="grid gap-4">
-        {MOCK_FORUM_TOPICS.map((topic, i) => (
-          <Card key={i} className="hover:border-primary/50 transition-colors cursor-pointer">
+        {posts.map((post) => (
+          <Card key={post.id} className="hover:border-primary/50 transition-colors">
             <CardContent className="p-6">
               <div className="flex gap-4">
                 <div className="flex flex-col items-center gap-1 min-w-[3rem]">
-                   <Button variant="ghost" size="icon" className="h-8 w-8 hover:text-green-600"><ThumbsUp className="h-4 w-4" /></Button>
-                   <span className="font-bold text-sm">{Math.floor(topic.views / 100)}</span>
+                   <Button variant="ghost" size="icon" className="h-8 w-8 hover:text-green-600" onClick={() => handleVote(post.id, 'up')}>
+                       <ThumbsUp className="h-4 w-4" />
+                   </Button>
+                   <span className="font-bold text-sm">{(post.upvotes || 0) - (post.downvotes || 0)}</span>
                 </div>
                 
                 <div className="flex-1">
-                  <h3 className="font-bold text-lg mb-2 hover:text-primary transition-colors">{topic.title}</h3>
+                  <h3 className="font-bold text-lg mb-2 text-slate-800">{post.content}</h3>
                   <div className="flex items-center gap-2 mb-4">
-                    <span className="px-2 py-0.5 bg-slate-100 rounded text-[10px] font-bold text-slate-500 uppercase">Policy</span>
-                    <span className="text-xs text-slate-400">• Posted by {topic.author} • 2h ago</span>
+                    <span className="px-2 py-0.5 bg-slate-100 rounded text-[10px] font-bold text-slate-500 uppercase">{post.city}</span>
+                    <span className="text-xs text-slate-400">• Posted by {post.author}</span>
                   </div>
                   
                   <div className="flex items-center gap-4 text-xs text-slate-500 font-medium">
-                    <span className="flex items-center gap-1"><MessageSquare className="h-3 w-3" /> {topic.replies} Replies</span>
-                    <span className="flex items-center gap-1"><Eye className="h-3 w-3" /> {topic.views} Views</span>
+                    <span className="flex items-center gap-1"><MessageSquare className="h-3 w-3" /> {post.comments?.length || 0} Comments</span>
                   </div>
                 </div>
 
-                <div className="hidden md:flex items-center">
-                  <div className="flex -space-x-2 mr-4">
-                    {[1,2,3].map(j => (
-                      <Avatar key={j} className="h-8 w-8 border-2 border-white">
-                        <AvatarFallback className="bg-slate-200 text-[10px]">U{j}</AvatarFallback>
-                      </Avatar>
-                    ))}
-                  </div>
-                  <Button variant="ghost" size="icon"><MoreHorizontal className="h-4 w-4" /></Button>
+                <div className="flex items-center gap-2">
+                  <Button variant="ghost" size="icon" className="text-slate-400 hover:text-red-500"><Flag className="h-4 w-4" /></Button>
                 </div>
               </div>
             </CardContent>

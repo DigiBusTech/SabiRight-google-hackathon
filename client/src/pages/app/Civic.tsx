@@ -1,96 +1,149 @@
-import { useState } from "react";
+import { useState, useEffect, useRef } from "react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { ScrollArea } from "@/components/ui/scroll-area";
-import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar";
-import { Send, Sparkles, User, ShieldCheck, Copy, ThumbsUp } from "lucide-react";
+import { Avatar, AvatarFallback } from "@/components/ui/avatar";
+import { Send, Sparkles, User, ShieldCheck, Copy, ThumbsUp, Mic } from "lucide-react";
 import { cn } from "@/lib/utils";
+import { GEMINI_API_KEY } from "@/lib/firebase";
+import { useAuth } from "@/context/AuthContext";
+import ReactMarkdown from "react-markdown";
 
 interface Message {
-  id: number;
   role: "user" | "ai";
   text: string;
-  citations?: string[];
+  sources?: { title?: string; uri?: string }[];
 }
 
 export default function CivicGuard() {
-  const [messages, setMessages] = useState<Message[]>([
-    {
-      id: 1,
-      role: "ai",
-      text: "Hello! I am your Right-to-Know AI Assistant. I can help you understand your rights under the 1999 Constitution and other Nigerian laws. What situation are you facing today?"
-    }
-  ]);
+  const { user } = useAuth();
+  const [messages, setMessages] = useState<Message[]>([]);
   const [input, setInput] = useState("");
   const [isTyping, setIsTyping] = useState(false);
+  const [isUrgent, setIsUrgent] = useState(false);
+  const scrollRef = useRef<HTMLDivElement>(null);
 
-  const handleSend = () => {
+  useEffect(() => {
+    if (scrollRef.current) {
+      scrollRef.current.scrollTop = scrollRef.current.scrollHeight;
+    }
+  }, [messages, isTyping]);
+
+  const handleSend = async () => {
     if (!input.trim()) return;
 
-    const userMsg: Message = { id: Date.now(), role: "user", text: input };
-    setMessages(prev => [...prev, userMsg]);
+    const userText = input;
     setInput("");
+    setMessages(prev => [...prev, { role: "user", text: userText }]);
     setIsTyping(true);
 
-    // Mock AI Response
-    setTimeout(() => {
-      const aiMsg: Message = {
-        id: Date.now() + 1,
-        role: "ai",
-        text: "Under Section 34 of the 1999 Constitution of the Federal Republic of Nigeria, every individual is entitled to respect for the dignity of their person. Accordingly, no person shall be subjected to torture or to inhuman or degrading treatment.",
-        citations: ["Section 34, 1999 Constitution", "Anti-Torture Act 2017"]
+    try {
+      const city = "Nigeria"; // Could be dynamic based on user profile
+      const systemPrompt = isUrgent
+        ? `URGENT EMERGENCY MODE. User Location: ${city}.
+           1. Ask users preferred Language with options English, Nigerian Pidgin English, Hausa, Yoruba, and Igbo.
+           2. Provide extremely concise, bullet-point instructions ONLY.
+           3. Cite specific sections of the 1999 Constitution or Police Act in brackets [e.g., Sec 34].
+           4. Tell the user exactly what to say or do.
+           5. Do not waste time with greetings.`
+        : `You are a helpful Legal Assistant for Nigeria. User Location: ${city}.
+           1. Ask users preferred Language with options English, Nigerian Pidgin English, Hausa, Yoruba, and Igbo.
+           2. Provide a clear, structured summary (2-3 short paragraphs maximum) of the law using the 1999 Constitution and Police Act 2020.
+           3. Keep explanations brief and focus on the main legal principle. Do not provide overly detailed advice.
+           4. Your name is Right-To-Know Agent.
+           5. Use Markdown for headings and bold text.`;
+
+      const apiUrl = `https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash:generateContent?key=${GEMINI_API_KEY}`;
+      
+      const payload = {
+        contents: [{ role: "user", parts: [{ text: userText }] }],
+        systemInstruction: { parts: [{ text: systemPrompt }] },
+        tools: [{ "google_search": {} }]
       };
-      setMessages(prev => [...prev, aiMsg]);
+
+      const response = await fetch(apiUrl, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(payload)
+      });
+
+      const data = await response.json();
+      const candidate = data.candidates?.[0];
+      const aiText = candidate?.content?.parts?.[0]?.text || "I couldn't generate a response. Please try again.";
+      
+      // Extract sources if available
+      const sources = candidate?.groundingMetadata?.groundingAttributions
+        ?.map((attr: any) => ({ uri: attr.web?.uri, title: attr.web?.title }))
+        .filter((s: any) => s.uri && s.title) || [];
+
+      setMessages(prev => [...prev, { role: "ai", text: aiText, sources }]);
+    } catch (error) {
+      console.error("Gemini Error:", error);
+      setMessages(prev => [...prev, { role: "ai", text: "Connection Error. Please check your internet connection." }]);
+    } finally {
       setIsTyping(false);
-    }, 1500);
+    }
   };
 
   return (
     <div className="h-[calc(100vh-8rem)] flex flex-col md:grid md:grid-cols-3 gap-6">
       {/* Main Chat Area */}
       <div className="md:col-span-2 flex flex-col bg-white rounded-3xl border shadow-sm overflow-hidden h-full">
-        <div className="p-4 border-b bg-slate-50 flex items-center gap-3">
-          <div className="bg-primary/10 p-2 rounded-lg">
-             <Sparkles className="h-5 w-5 text-primary" />
+        <div className={cn("p-4 border-b flex items-center justify-between transition-colors", isUrgent ? "bg-red-50 border-red-100" : "bg-slate-50")}>
+          <div className="flex items-center gap-3">
+            <div className={cn("p-2 rounded-lg", isUrgent ? "bg-red-100 text-red-600" : "bg-primary/10 text-primary")}>
+               <Sparkles className="h-5 w-5" />
+            </div>
+            <div>
+              <h2 className="font-bold text-sm">Right-to-Know AI Agent</h2>
+              <p className="text-xs text-slate-500">{isUrgent ? "🚨 Urgent Assistance Mode" : "Verified Legal Knowledge Base"}</p>
+            </div>
           </div>
-          <div>
-            <h2 className="font-bold text-sm">Right-to-Know AI Agent</h2>
-            <p className="text-xs text-slate-500">Verified Legal Knowledge Base</p>
-          </div>
+          <Button 
+            variant="outline" 
+            size="sm" 
+            onClick={() => setIsUrgent(!isUrgent)}
+            className={cn("text-xs font-bold", isUrgent ? "bg-red-100 text-red-700 border-red-200 hover:bg-red-200" : "")}
+          >
+            {isUrgent ? "Disable Urgent Mode" : "Enable Urgent Mode"}
+          </Button>
         </div>
 
-        <ScrollArea className="flex-1 p-4">
+        <ScrollArea className="flex-1 p-4" ref={scrollRef}>
           <div className="space-y-6">
-            {messages.map((msg) => (
-              <div key={msg.id} className={cn("flex gap-4 max-w-[90%]", msg.role === "user" ? "ml-auto flex-row-reverse" : "")}>
+            {messages.length === 0 && (
+                <div className="text-center text-slate-400 mt-20">
+                    <div className="w-16 h-16 bg-slate-100 rounded-full flex items-center justify-center mx-auto mb-4">
+                        <ShieldCheck className="h-8 w-8 text-slate-300" />
+                    </div>
+                    <p className="text-sm">Ask a legal question below.</p>
+                    <p className="text-xs mt-2 text-slate-300">"What are my rights at a checkpoint?"</p>
+                </div>
+            )}
+
+            {messages.map((msg, i) => (
+              <div key={i} className={cn("flex gap-4 max-w-[90%]", msg.role === "user" ? "ml-auto flex-row-reverse" : "")}>
                 <Avatar className={cn("h-8 w-8 mt-1", msg.role === "ai" ? "bg-primary text-white" : "bg-slate-200")}>
                   {msg.role === "ai" ? <ShieldCheck className="h-4 w-4" /> : <User className="h-4 w-4" />}
                 </Avatar>
                 
-                <div className={cn("space-y-2", msg.role === "user" ? "items-end" : "items-start")}>
+                <div className={cn("space-y-2", msg.role === "user" ? "items-end" : "items-start w-full")}>
                   <div className={cn(
-                    "p-4 rounded-2xl text-sm leading-relaxed shadow-sm",
+                    "p-4 rounded-2xl text-sm leading-relaxed shadow-sm prose prose-sm max-w-none",
                     msg.role === "user" 
                       ? "bg-primary text-white rounded-tr-none" 
                       : "bg-slate-50 border rounded-tl-none"
                   )}>
-                    {msg.text}
+                    <ReactMarkdown>{msg.text}</ReactMarkdown>
                   </div>
                   
-                  {msg.citations && (
+                  {msg.sources && msg.sources.length > 0 && (
                     <div className="flex gap-2 flex-wrap">
-                      {msg.citations.map((cite, i) => (
-                        <span key={i} className="text-[10px] font-bold bg-green-50 text-green-700 border border-green-200 px-2 py-1 rounded-full flex items-center gap-1">
-                          <ShieldCheck className="h-3 w-3" /> {cite}
-                        </span>
+                      {msg.sources.map((source, idx) => (
+                        <a key={idx} href={source.uri} target="_blank" rel="noopener noreferrer" className="text-[10px] font-bold bg-green-50 text-green-700 border border-green-200 px-2 py-1 rounded-full flex items-center gap-1 hover:underline">
+                          <ShieldCheck className="h-3 w-3" /> {source.title}
+                        </a>
                       ))}
-                    </div>
-                  )}
-                  
-                  {msg.role === "ai" && (
-                    <div className="flex gap-2">
-                       <Button size="icon" variant="ghost" className="h-6 w-6 text-slate-400 hover:text-primary"><Copy className="h-3 w-3" /></Button>
-                       <Button size="icon" variant="ghost" className="h-6 w-6 text-slate-400 hover:text-primary"><ThumbsUp className="h-3 w-3" /></Button>
                     </div>
                   )}
                 </div>
@@ -118,10 +171,13 @@ export default function CivicGuard() {
             <Input 
               value={input}
               onChange={(e) => setInput(e.target.value)}
-              placeholder="Ask about your rights (e.g., 'Can police search my phone?')"
-              className="flex-1 rounded-xl h-12 bg-slate-50 border-slate-200 focus-visible:ring-primary"
+              placeholder={isUrgent ? "Describe emergency situation..." : "Ask about your rights..."}
+              className={cn("flex-1 rounded-xl h-12 border-slate-200 focus-visible:ring-primary", isUrgent ? "bg-red-50 placeholder:text-red-300" : "bg-slate-50")}
             />
-            <Button type="submit" size="icon" className="h-12 w-12 rounded-xl shadow-lg">
+            <Button type="button" size="icon" variant="outline" className="h-12 w-12 rounded-xl text-slate-400 hover:text-slate-600">
+                <Mic className="h-5 w-5" />
+            </Button>
+            <Button type="submit" size="icon" className={cn("h-12 w-12 rounded-xl shadow-lg", isUrgent ? "bg-red-600 hover:bg-red-700" : "")}>
               <Send className="h-5 w-5" />
             </Button>
           </form>
@@ -147,7 +203,7 @@ export default function CivicGuard() {
            <h3 className="font-bold text-sm mb-4">Common Questions</h3>
            <div className="space-y-2">
              {["Bail is Free", "Tenancy Notice Period", "Checkpoint Rights", "Employer Contracts"].map((tag) => (
-               <Button key={tag} variant="outline" className="w-full justify-start text-xs h-9 rounded-lg">
+               <Button key={tag} variant="outline" className="w-full justify-start text-xs h-9 rounded-lg" onClick={() => setInput(tag)}>
                  {tag}
                </Button>
              ))}

@@ -38,20 +38,21 @@ export default function CivicGuard() {
     setIsTyping(true);
 
     try {
-      const city = "Nigeria"; // Could be dynamic based on user profile
+      const city = "Nigeria"; 
+      
       const systemPrompt = isUrgent
-        ? `URGENT EMERGENCY MODE. User Location: ${city}.
-           1. Ask users preferred Language with options English, Nigerian Pidgin English, Hausa, Yoruba, and Igbo.
-           2. Provide extremely concise, bullet-point instructions ONLY.
-           3. Cite specific sections of the 1999 Constitution or Police Act in brackets [e.g., Sec 34].
-           4. Tell the user exactly what to say or do.
-           5. Do not waste time with greetings.`
-        : `You are a helpful Legal Assistant for Nigeria. User Location: ${city}.
-           1. Ask users preferred Language with options English, Nigerian Pidgin English, Hausa, Yoruba, and Igbo.
-           2. Provide a clear, structured summary (2-3 short paragraphs maximum) of the law using the 1999 Constitution and Police Act 2020.
-           3. Keep explanations brief and focus on the main legal principle. Do not provide overly detailed advice.
-           4. Your name is Right-To-Know Agent.
-           5. Use Markdown for headings and bold text.`;
+        ? `EMERGENCY LEGAL ASSISTANT MODE. User Location: ${city}.
+           You are an urgent legal aid tool. The user might be in danger.
+           1. First, quickly assess if they are safe.
+           2. Provide concise, imperative instructions (e.g., "Do not speak," "Ask for a warrant").
+           3. Cite specific Nigerian laws (1999 Constitution, Police Act 2020) to empower them.
+           4. Do NOT give long explanations. Bullet points only.`
+        : `You are the "Right-To-Know" Legal Assistant for Nigeria.
+           1. Your goal is to educate citizens on their rights under the 1999 Constitution and Police Act 2020.
+           2. Provide clear, structured summaries.
+           3. If the user asks about bail, arrests, or tenancy, cite the specific sections.
+           4. Use Markdown for formatting (bolding key terms).
+           5. Be helpful, professional, and empowering.`;
 
       const apiUrl = `https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash:generateContent?key=${GEMINI_API_KEY}`;
       
@@ -67,11 +68,15 @@ export default function CivicGuard() {
         body: JSON.stringify(payload)
       });
 
+      if (!response.ok) {
+          throw new Error(`API Error: ${response.status}`);
+      }
+
       const data = await response.json();
       const candidate = data.candidates?.[0];
       const aiText = candidate?.content?.parts?.[0]?.text || "I couldn't generate a response. Please try again.";
       
-      // Extract sources if available
+      // Extract sources
       const sources = candidate?.groundingMetadata?.groundingAttributions
         ?.map((attr: any) => ({ uri: attr.web?.uri, title: attr.web?.title }))
         .filter((s: any) => s.uri && s.title) || [];
@@ -79,7 +84,7 @@ export default function CivicGuard() {
       setMessages(prev => [...prev, { role: "ai", text: aiText, sources }]);
     } catch (error) {
       console.error("Gemini Error:", error);
-      setMessages(prev => [...prev, { role: "ai", text: "Connection Error. Please check your internet connection." }]);
+      setMessages(prev => [...prev, { role: "ai", text: "I'm having trouble connecting to the legal database right now. Please check your internet connection." }]);
     } finally {
       setIsTyping(false);
     }

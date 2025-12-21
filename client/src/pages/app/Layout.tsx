@@ -10,7 +10,8 @@ import {
   LogOut, 
   Menu,
   X,
-  ShieldCheck
+  ShieldCheck,
+  Calendar
 } from "lucide-react";
 import { useState } from "react";
 import { Button } from "@/components/ui/button";
@@ -45,6 +46,7 @@ export default function AppLayout({ children }: AppLayoutProps) {
     { icon: Store, label: "Marketplace", href: "/app/marketplace" },
     { icon: Briefcase, label: "Jobs", href: "/app/jobs" },
     { icon: Users, label: "Forum", href: "/app/forum" },
+    { icon: Calendar, label: "Events", href: "/app/events" },
   ];
 
   return (

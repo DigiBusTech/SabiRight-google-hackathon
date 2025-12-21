@@ -72,9 +72,11 @@ export default function Dashboard() {
             <p className="text-xs text-slate-600">
               Lagos Zone 1 • Tomorrow at 9:00 AM
             </p>
-            <Button variant="link" className="p-0 h-auto text-purple-600 text-xs mt-3 font-bold">
-              View Ticket <ChevronRight className="h-3 w-3 ml-1" />
-            </Button>
+            <Link href="/app/events">
+              <Button variant="link" className="p-0 h-auto text-purple-600 text-xs mt-3 font-bold">
+                View All Events <ChevronRight className="h-3 w-3 ml-1" />
+              </Button>
+            </Link>
           </CardContent>
         </Card>
       </div>
@@ -86,7 +88,9 @@ export default function Dashboard() {
         <div className="lg:col-span-2 space-y-6">
           <div className="flex items-center justify-between">
             <h3 className="text-lg font-bold">Verified Services Near You</h3>
-            <Button variant="ghost" size="sm" className="text-primary">View All</Button>
+            <Link href="/app/marketplace">
+              <Button variant="ghost" size="sm" className="text-primary">View All</Button>
+            </Link>
           </div>
           
           <div className="grid sm:grid-cols-2 gap-4">

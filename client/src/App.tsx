@@ -13,6 +13,7 @@ import Marketplace from "@/pages/app/Marketplace";
 import Jobs from "@/pages/app/Jobs";
 import Forum from "@/pages/app/Forum";
 import Events from "@/pages/app/Events";
+import PlanManagement from "@/pages/app/PlanManagement";
 import Login from "@/pages/auth/Login";
 
 function Router() {
@@ -39,6 +40,9 @@ function Router() {
       </Route>
       <Route path="/app/events">
         <AppLayout><Events /></AppLayout>
+      </Route>
+      <Route path="/app/plans">
+        <AppLayout><PlanManagement /></AppLayout>
       </Route>
 
       <Route component={NotFound} />

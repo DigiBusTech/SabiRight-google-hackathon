@@ -2,10 +2,14 @@ import { useState, useEffect } from "react";
 import { Card, CardContent } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
-import { Briefcase, Building2, MapPin, DollarSign, Clock, Search, Loader2, X } from "lucide-react";
+import { Briefcase, Building2, MapPin, DollarSign, Clock, Search, Loader2, X, AlertCircle } from "lucide-react";
 import { db, FIREBASE_APP_ID } from "@/lib/firebase";
 import { collection, query, orderBy, limit, onSnapshot, addDoc, serverTimestamp } from "firebase/firestore";
 import { runGemini } from "@/lib/gemini";
+import { useAuth } from "@/context/AuthContext";
+import { useToast } from "@/hooks/use-toast";
+import { useQuery } from "@tanstack/react-query";
+import { CreditDisplay } from "@/components/CreditDisplay";
 import ReactMarkdown from "react-markdown";
 import { cn } from "@/lib/utils";
 
@@ -24,6 +28,8 @@ interface Job {
 }
 
 export default function Jobs() {
+  const { user } = useAuth();
+  const { toast } = useToast();
   const [jobs, setJobs] = useState<Job[]>([]);
   const [loading, setLoading] = useState(true);
   const [searching, setSearching] = useState(false);
@@ -33,6 +39,19 @@ export default function Jobs() {
   const [location, setLocation] = useState("Lagos");
   const [employmentType, setEmploymentType] = useState("");
   const [workMode, setWorkMode] = useState("");
+
+  // Fetch credits
+  const { data: credits, refetch: refetchCredits } = useQuery({
+    queryKey: [`credits-${user?.uid}`],
+    queryFn: async () => {
+      if (!user?.uid) return null;
+      const res = await fetch(`/api/credits/${user.uid}/available`);
+      if (!res.ok) return null;
+      return res.json();
+    },
+    enabled: !!user?.uid,
+    refetchInterval: 30000,
+  });
 
   useEffect(() => {
     const q = query(
@@ -52,6 +71,17 @@ export default function Jobs() {
 
   const handleSearch = async (e: React.FormEvent) => {
     e.preventDefault();
+    
+    // Check credits for job generation
+    if (!credits || credits.availableCredits < 1) {
+      toast({ 
+        title: "No Credits", 
+        description: "Each job search uses 1 credit. Upgrade your plan for unlimited searches.",
+        variant: "destructive"
+      });
+      return;
+    }
+
     setSearching(true);
 
     try {
@@ -86,6 +116,25 @@ export default function Jobs() {
                         isAiFetched: true
                     });
                 }
+
+                // Deduct credit
+                if (user?.uid) {
+                  await fetch(`/api/credits/${user.uid}/deduct`, {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({
+                      amount: 1,
+                      feature: 'job_search',
+                      description: `Job search: ${role} in ${location}`
+                    })
+                  });
+                  refetchCredits();
+                }
+                
+                toast({ 
+                  title: "Jobs Found", 
+                  description: "New job listings added to your feed"
+                });
              } catch (e) {
                  console.error("Failed to parse AI jobs", e);
              }
@@ -111,10 +160,23 @@ export default function Jobs() {
           <h2 className="text-2xl font-bold tracking-tight">AI Job Matches</h2>
           <p className="text-slate-500">Opportunities curated for your verified profile.</p>
         </div>
-        <Button onClick={() => document.getElementById('search-form')?.scrollIntoView({behavior: 'smooth'})}>
-            Post a Job
-        </Button>
+        <div className="flex gap-2">
+          <CreditDisplay compact={true} />
+          <Button onClick={() => document.getElementById('search-form')?.scrollIntoView({behavior: 'smooth'})}>
+              Post a Job
+          </Button>
+        </div>
       </div>
+
+      {(!credits || credits.availableCredits < 1) && (
+        <div className="bg-yellow-50 border border-yellow-100 rounded-lg p-4 flex items-center gap-3">
+          <AlertCircle className="h-5 w-5 text-yellow-600" />
+          <div className="text-sm">
+            <p className="font-semibold text-yellow-900">No credits for job generation</p>
+            <p className="text-xs text-yellow-700">You can still browse and apply to jobs already generated. <a href="/app/plans" className="underline font-bold">Upgrade your plan</a> for unlimited searches.</p>
+          </div>
+        </div>
+      )}
 
       {/* Search Form */}
       <Card className="bg-blue-50 border-blue-100">

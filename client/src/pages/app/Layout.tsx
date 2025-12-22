@@ -11,7 +11,8 @@ import {
   Menu,
   X,
   ShieldCheck,
-  Calendar
+  Calendar,
+  Zap
 } from "lucide-react";
 import { useState } from "react";
 import { Button } from "@/components/ui/button";
@@ -47,6 +48,7 @@ export default function AppLayout({ children }: AppLayoutProps) {
     { icon: Briefcase, label: "Jobs", href: "/app/jobs" },
     { icon: Users, label: "Forum", href: "/app/forum" },
     { icon: Calendar, label: "Events", href: "/app/events" },
+    { icon: Zap, label: "Plans & Billing", href: "/app/plans" },
   ];
 
   return (

@@ -3,10 +3,13 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { ScrollArea } from "@/components/ui/scroll-area";
 import { Avatar, AvatarFallback } from "@/components/ui/avatar";
-import { Send, Sparkles, User, ShieldCheck, Copy, ThumbsUp, Mic } from "lucide-react";
+import { Send, Sparkles, User, ShieldCheck, Copy, ThumbsUp, Mic, AlertCircle } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { GEMINI_API_KEY } from "@/lib/firebase";
 import { useAuth } from "@/context/AuthContext";
+import { useToast } from "@/hooks/use-toast";
+import { CreditDisplay } from "@/components/CreditDisplay";
+import { useQuery } from "@tanstack/react-query";
 import ReactMarkdown from "react-markdown";
 
 interface Message {
@@ -17,11 +20,25 @@ interface Message {
 
 export default function CivicGuard() {
   const { user } = useAuth();
+  const { toast } = useToast();
   const [messages, setMessages] = useState<Message[]>([]);
   const [input, setInput] = useState("");
   const [isTyping, setIsTyping] = useState(false);
   const [isUrgent, setIsUrgent] = useState(false);
   const scrollRef = useRef<HTMLDivElement>(null);
+
+  // Fetch credits
+  const { data: credits, refetch: refetchCredits } = useQuery({
+    queryKey: [`credits-${user?.uid}`],
+    queryFn: async () => {
+      if (!user?.uid) return null;
+      const res = await fetch(`/api/credits/${user.uid}/available`);
+      if (!res.ok) return null;
+      return res.json();
+    },
+    enabled: !!user?.uid,
+    refetchInterval: 30000,
+  });
 
   useEffect(() => {
     if (scrollRef.current) {
@@ -31,6 +48,16 @@ export default function CivicGuard() {
 
   const handleSend = async () => {
     if (!input.trim()) return;
+
+    // Check credits
+    if (!credits || credits.availableCredits < 1) {
+      toast({ 
+        title: "No Credits", 
+        description: "You've used all your daily credits. Upgrade your plan for unlimited access.",
+        variant: "destructive"
+      });
+      return;
+    }
 
     const userText = input;
     setInput("");
@@ -82,6 +109,20 @@ export default function CivicGuard() {
         .filter((s: any) => s.uri && s.title) || [];
 
       setMessages(prev => [...prev, { role: "ai", text: aiText, sources }]);
+      
+      // Deduct credit
+      if (user?.uid) {
+        await fetch(`/api/credits/${user.uid}/deduct`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            amount: 1,
+            feature: 'civic_guard',
+            description: `Legal AI query: ${userText.substring(0, 50)}`
+          })
+        });
+        refetchCredits();
+      }
     } catch (error) {
       console.error("Gemini Error:", error);
       setMessages(prev => [...prev, { role: "ai", text: "I'm having trouble connecting to the legal database right now. Please check your internet connection." }]);
@@ -94,6 +135,19 @@ export default function CivicGuard() {
     <div className="h-[calc(100vh-8rem)] flex flex-col md:grid md:grid-cols-3 gap-6">
       {/* Main Chat Area */}
       <div className="md:col-span-2 flex flex-col bg-white rounded-3xl border shadow-sm overflow-hidden h-full">
+        {(!credits || credits.availableCredits <= 2) && (
+          <div className="bg-yellow-50 border-b border-yellow-100 p-3 flex items-center gap-3">
+            <AlertCircle className="h-5 w-5 text-yellow-600" />
+            <div className="text-sm flex-1">
+              <p className="font-semibold text-yellow-900">
+                {!credits || credits.availableCredits === 0 
+                  ? "No credits available" 
+                  : `${credits.availableCredits} credit${credits.availableCredits !== 1 ? 's' : ''} remaining`}
+              </p>
+              <p className="text-xs text-yellow-700">Each query uses 1 credit. <a href="/app/plans" className="underline font-bold">Upgrade your plan</a> for more.</p>
+            </div>
+          </div>
+        )}
         <div className={cn("p-4 border-b flex items-center justify-between transition-colors", isUrgent ? "bg-red-50 border-red-100" : "bg-slate-50")}>
           <div className="flex items-center gap-3">
             <div className={cn("p-2 rounded-lg", isUrgent ? "bg-red-100 text-red-600" : "bg-primary/10 text-primary")}>
@@ -191,6 +245,8 @@ export default function CivicGuard() {
 
       {/* Sidebar Info */}
       <div className="hidden md:block space-y-6">
+        <CreditDisplay compact={false} onClick={() => window.location.href = '/app/plans'} />
+        
         <div className="bg-slate-900 text-white p-6 rounded-3xl relative overflow-hidden">
           <div className="absolute top-0 right-0 w-32 h-32 bg-primary/20 rounded-full blur-3xl -mr-10 -mt-10 pointer-events-none"></div>
           <h3 className="font-bold text-lg mb-2 relative z-10">How it works</h3>

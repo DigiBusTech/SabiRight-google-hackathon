@@ -14,6 +14,7 @@ import Jobs from "@/pages/app/Jobs";
 import Forum from "@/pages/app/Forum";
 import Events from "@/pages/app/Events";
 import PlanManagement from "@/pages/app/PlanManagement";
+import TrafficAlerts from "@/pages/app/TrafficAlerts";
 import Login from "@/pages/auth/Login";
 
 function Router() {
@@ -43,6 +44,9 @@ function Router() {
       </Route>
       <Route path="/app/plans">
         <AppLayout><PlanManagement /></AppLayout>
+      </Route>
+      <Route path="/app/traffic">
+        <AppLayout><TrafficAlerts /></AppLayout>
       </Route>
 
       <Route component={NotFound} />

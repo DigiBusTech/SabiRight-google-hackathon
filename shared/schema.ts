@@ -70,6 +70,33 @@ export const vendorApplications = pgTable("vendor_applications", {
   approvedAt: timestamp("approved_at"),
 });
 
+export const cloakedRoutes = pgTable("cloaked_routes", {
+  id: varchar("id").primaryKey().default(sql`gen_random_uuid()`),
+  userId: varchar("user_id").notNull().references(() => users.id),
+  routeName: text("route_name").notNull(),
+  startLocation: text("start_location").notNull(),
+  endLocation: text("end_location").notNull(),
+  startLat: numeric("start_lat", { precision: 10, scale: 8 }),
+  startLng: numeric("start_lng", { precision: 11, scale: 8 }),
+  endLat: numeric("end_lat", { precision: 10, scale: 8 }),
+  endLng: numeric("end_lng", { precision: 11, scale: 8 }),
+  lastStatus: text("last_status").notNull().default("active"), // 'active', 'cleared', 'unknown'
+  lastChecked: timestamp("last_checked").defaultNow(),
+  isActive: boolean("is_active").default(true),
+  createdAt: timestamp("created_at").defaultNow(),
+});
+
+export const trafficAlerts = pgTable("traffic_alerts", {
+  id: varchar("id").primaryKey().default(sql`gen_random_uuid()`),
+  routeId: varchar("route_id").notNull().references(() => cloakedRoutes.id),
+  userId: varchar("user_id").notNull().references(() => users.id),
+  alertType: text("alert_type").notNull(), // 'active_checkpoint', 'cleared', 'unknown'
+  message: text("message"),
+  severity: text("severity"), // 'high', 'medium', 'low'
+  createdAt: timestamp("created_at").defaultNow(),
+  acknowledgedAt: timestamp("acknowledged_at"),
+});
+
 // Insert schemas
 export const insertUserSchema = createInsertSchema(users).pick({
   username: true,
@@ -98,3 +125,5 @@ export type Subscription = typeof subscriptions.$inferSelect;
 export type Credits = typeof credits.$inferSelect;
 export type CreditLog = typeof creditLog.$inferSelect;
 export type VendorApplication = typeof vendorApplications.$inferSelect;
+export type CloakedRoute = typeof cloakedRoutes.$inferSelect;
+export type TrafficAlert = typeof trafficAlerts.$inferSelect;

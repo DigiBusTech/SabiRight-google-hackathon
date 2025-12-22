@@ -46,13 +46,15 @@ export async function registerRoutes(
     }
     
     const updatedCredits = await storage.getUserCredits(userId);
-    const available = updatedCredits!.totalCredits - updatedCredits!.usedCredits;
+    const total = updatedCredits?.totalCredits || 0;
+    const used = updatedCredits?.usedCredits || 0;
+    const available = total - used;
     
     res.json({
-      totalCredits: updatedCredits!.totalCredits,
-      usedCredits: updatedCredits!.usedCredits,
+      totalCredits: total,
+      usedCredits: used,
       availableCredits: available,
-      renewalDate: updatedCredits!.renewalDate
+      renewalDate: updatedCredits?.renewalDate
     });
   });
 
@@ -70,10 +72,12 @@ export async function registerRoutes(
     }
 
     const credits = await storage.getUserCredits(userId);
+    const total = credits?.totalCredits || 0;
+    const used = credits?.usedCredits || 0;
     res.json({
       success: true,
-      remainingCredits: credits!.totalCredits - credits!.usedCredits,
-      totalUsed: credits!.usedCredits
+      remainingCredits: total - used,
+      totalUsed: used
     });
   });
 
@@ -87,9 +91,11 @@ export async function registerRoutes(
 
     await storage.refundCredits(userId, amount, feature);
     const credits = await storage.getUserCredits(userId);
+    const total = credits?.totalCredits || 0;
+    const used = credits?.usedCredits || 0;
     res.json({
       success: true,
-      remainingCredits: credits!.totalCredits - credits!.usedCredits
+      remainingCredits: total - used
     });
   });
 
@@ -97,6 +103,83 @@ export async function registerRoutes(
     const { userId } = req.params;
     const logs = await storage.getCreditLog(userId);
     res.json(logs);
+  });
+
+  // Cloaked Routes
+  app.get("/api/routes/:userId", async (req, res) => {
+    const { userId } = req.params;
+    const routes = await storage.getUserRoutes(userId);
+    res.json(routes);
+  });
+
+  app.post("/api/routes", async (req, res) => {
+    const { userId, routeName, startLocation, endLocation, startLat, startLng, endLat, endLng } = req.body;
+    
+    if (!userId || !routeName || !startLocation || !endLocation) {
+      return res.status(400).json({ error: 'Missing required fields' });
+    }
+
+    const route = await storage.createRoute({
+      userId,
+      routeName,
+      startLocation,
+      endLocation,
+      startLat: parseFloat(startLat),
+      startLng: parseFloat(startLng),
+      endLat: parseFloat(endLat),
+      endLng: parseFloat(endLng)
+    });
+
+    res.json(route);
+  });
+
+  app.patch("/api/routes/:routeId/status", async (req, res) => {
+    const { routeId } = req.params;
+    const { status } = req.body;
+
+    if (!status) {
+      return res.status(400).json({ error: 'Status required' });
+    }
+
+    await storage.updateRouteStatus(routeId, status);
+    res.json({ success: true, status });
+  });
+
+  app.delete("/api/routes/:routeId", async (req, res) => {
+    const { routeId } = req.params;
+    await storage.deleteRoute(routeId);
+    res.json({ success: true });
+  });
+
+  // Traffic Alerts
+  app.get("/api/alerts/:routeId", async (req, res) => {
+    const { routeId } = req.params;
+    const alerts = await storage.getRouteAlerts(routeId);
+    res.json(alerts);
+  });
+
+  app.post("/api/alerts", async (req, res) => {
+    const { routeId, userId, alertType, message, severity } = req.body;
+
+    if (!routeId || !userId || !alertType) {
+      return res.status(400).json({ error: 'Missing required fields' });
+    }
+
+    const alert = await storage.createAlert({
+      routeId,
+      userId,
+      alertType,
+      message,
+      severity
+    });
+
+    res.json(alert);
+  });
+
+  app.patch("/api/alerts/:alertId/acknowledge", async (req, res) => {
+    const { alertId } = req.params;
+    await storage.acknowledgeAlert(alertId);
+    res.json({ success: true });
   });
 
   // Subscriptions

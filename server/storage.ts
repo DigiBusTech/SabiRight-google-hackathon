@@ -1,4 +1,4 @@
-import { type User, type InsertUser, type Subscription, type Credits, type Plan, type CreditLog } from "@shared/schema";
+import { type User, type InsertUser, type Subscription, type Credits, type Plan, type CreditLog, type CloakedRoute, type TrafficAlert } from "@shared/schema";
 import { randomUUID } from "crypto";
 
 export interface IStorage {
@@ -26,6 +26,17 @@ export interface IStorage {
   getAllPlans(): Promise<Plan[]>;
   getPlanById(planId: string): Promise<Plan | undefined>;
   getPlansByType(type: 'free' | 'basic' | 'pro' | 'enterprise', userType: 'user' | 'vendor'): Promise<Plan[]>;
+
+  // Cloaked Routes
+  getUserRoutes(userId: string): Promise<CloakedRoute[]>;
+  createRoute(route: any): Promise<CloakedRoute>;
+  updateRouteStatus(routeId: string, status: string): Promise<void>;
+  deleteRoute(routeId: string): Promise<void>;
+
+  // Traffic Alerts
+  getRouteAlerts(routeId: string, limit?: number): Promise<TrafficAlert[]>;
+  createAlert(alert: any): Promise<TrafficAlert>;
+  acknowledgeAlert(alertId: string): Promise<void>;
 }
 
 export class MemStorage implements IStorage {
@@ -34,6 +45,8 @@ export class MemStorage implements IStorage {
   private credits: Map<string, Credits>;
   private creditLogs: Map<string, CreditLog[]>;
   private plans: Map<string, Plan>;
+  private routes: Map<string, CloakedRoute>;
+  private alerts: Map<string, TrafficAlert>;
 
   constructor() {
     this.users = new Map();
@@ -41,6 +54,8 @@ export class MemStorage implements IStorage {
     this.credits = new Map();
     this.creditLogs = new Map();
     this.plans = this.initializePlans();
+    this.routes = new Map();
+    this.alerts = new Map();
   }
 
   private initializePlans(): Map<string, Plan> {
@@ -197,10 +212,12 @@ export class MemStorage implements IStorage {
     const credits = this.credits.get(userId);
     if (!credits) return false;
 
-    const availableCredits = credits.totalCredits - credits.usedCredits;
+    const totalCredits = credits.totalCredits || 0;
+    const usedCredits = credits.usedCredits || 0;
+    const availableCredits = totalCredits - usedCredits;
     if (availableCredits < amount) return false;
 
-    credits.usedCredits += amount;
+    credits.usedCredits = usedCredits + amount;
     this.credits.set(userId, credits);
     
     // Log the transaction
@@ -225,7 +242,8 @@ export class MemStorage implements IStorage {
   async refundCredits(userId: string, amount: number, feature: string): Promise<void> {
     const credits = this.credits.get(userId);
     if (credits) {
-      credits.usedCredits = Math.max(0, credits.usedCredits - amount);
+      const usedCredits = credits.usedCredits || 0;
+      credits.usedCredits = Math.max(0, usedCredits - amount);
       this.credits.set(userId, credits);
       
       if (!this.creditLogs.has(userId)) {
@@ -250,11 +268,12 @@ export class MemStorage implements IStorage {
     const credits = this.credits.get(userId);
     if (credits) {
       const now = new Date();
-      const lastRefresh = new Date(credits.lastRefreshDate);
+      const lastRefresh = credits.lastRefreshDate ? new Date(credits.lastRefreshDate) : new Date();
       
       // Check if 24 hours have passed
       if (now.getTime() - lastRefresh.getTime() >= 24 * 60 * 60 * 1000) {
-        credits.totalCredits += dailyAmount;
+        const total = credits.totalCredits || 0;
+        credits.totalCredits = total + dailyAmount;
         credits.usedCredits = 0;
         credits.lastRefreshDate = now;
         credits.renewalDate = new Date(now.getTime() + 24 * 60 * 60 * 1000);
@@ -266,6 +285,69 @@ export class MemStorage implements IStorage {
   async getCreditLog(userId: string, limit: number = 20): Promise<CreditLog[]> {
     const logs = this.creditLogs.get(userId) || [];
     return logs.slice(-limit).reverse();
+  }
+
+  // Cloaked Routes
+  async getUserRoutes(userId: string): Promise<CloakedRoute[]> {
+    return Array.from(this.routes.values()).filter(r => r.userId === userId && r.isActive);
+  }
+
+  async createRoute(route: any): Promise<CloakedRoute> {
+    const id = randomUUID();
+    const newRoute: CloakedRoute = {
+      ...route,
+      id,
+      lastChecked: new Date(),
+      createdAt: new Date(),
+      isActive: true,
+      lastStatus: 'active'
+    };
+    this.routes.set(id, newRoute);
+    return newRoute;
+  }
+
+  async updateRouteStatus(routeId: string, status: string): Promise<void> {
+    const route = this.routes.get(routeId);
+    if (route) {
+      route.lastStatus = status;
+      route.lastChecked = new Date();
+      this.routes.set(routeId, route);
+    }
+  }
+
+  async deleteRoute(routeId: string): Promise<void> {
+    const route = this.routes.get(routeId);
+    if (route) {
+      route.isActive = false;
+      this.routes.set(routeId, route);
+    }
+  }
+
+  // Traffic Alerts
+  async getRouteAlerts(routeId: string, limit: number = 20): Promise<TrafficAlert[]> {
+    return Array.from(this.alerts.values())
+      .filter(a => a.routeId === routeId)
+      .slice(-limit)
+      .reverse();
+  }
+
+  async createAlert(alert: any): Promise<TrafficAlert> {
+    const id = randomUUID();
+    const newAlert: TrafficAlert = {
+      ...alert,
+      id,
+      createdAt: new Date()
+    };
+    this.alerts.set(id, newAlert);
+    return newAlert;
+  }
+
+  async acknowledgeAlert(alertId: string): Promise<void> {
+    const alert = this.alerts.get(alertId);
+    if (alert) {
+      alert.acknowledgedAt = new Date();
+      this.alerts.set(alertId, alert);
+    }
   }
 }
 

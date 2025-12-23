@@ -13,7 +13,9 @@ import {
   ShieldCheck,
   Calendar,
   Zap,
-  AlertTriangle
+  AlertTriangle,
+  BadgeCheck,
+  BarChart3
 } from "lucide-react";
 import { useState } from "react";
 import { Button } from "@/components/ui/button";
@@ -50,6 +52,8 @@ export default function AppLayout({ children }: AppLayoutProps) {
     { icon: Users, label: "Forum", href: "/app/forum" },
     { icon: Calendar, label: "Events", href: "/app/events" },
     { icon: AlertTriangle, label: "Traffic Alerts", href: "/app/traffic" },
+    { icon: BadgeCheck, label: "KYC Verification", href: "/app/kyc" },
+    { icon: BarChart3, label: "Vendor Dashboard", href: "/app/vendor" },
     { icon: Zap, label: "Plans & Billing", href: "/app/plans" },
   ];
 

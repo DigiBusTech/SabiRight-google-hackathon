@@ -15,6 +15,8 @@ import Forum from "@/pages/app/Forum";
 import Events from "@/pages/app/Events";
 import PlanManagement from "@/pages/app/PlanManagement";
 import TrafficAlerts from "@/pages/app/TrafficAlerts";
+import KYCVerification from "@/pages/app/KYC";
+import VendorDashboard from "@/pages/app/VendorDashboard";
 import Login from "@/pages/auth/Login";
 
 function Router() {
@@ -47,6 +49,12 @@ function Router() {
       </Route>
       <Route path="/app/traffic">
         <AppLayout><TrafficAlerts /></AppLayout>
+      </Route>
+      <Route path="/app/kyc">
+        <AppLayout><KYCVerification /></AppLayout>
+      </Route>
+      <Route path="/app/vendor">
+        <AppLayout><VendorDashboard /></AppLayout>
       </Route>
 
       <Route component={NotFound} />

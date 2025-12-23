@@ -1,13 +1,72 @@
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
-import { AlertTriangle, MapPin, Briefcase, Calendar, ChevronRight, ShieldCheck, TrendingUp, Scale } from "lucide-react";
+import { AlertTriangle, MapPin, Briefcase, Calendar, ChevronRight, ShieldCheck, TrendingUp, Scale, RefreshCw, Zap } from "lucide-react";
 import { Button } from "@/components/ui/button";
+import { Badge } from "@/components/ui/badge";
 import { MOCK_JOBS } from "@/lib/constants";
 import { Link } from "wouter";
 import { useAuth } from "@/context/AuthContext";
+import { useToast } from "@/hooks/use-toast";
+import { useQuery } from "@tanstack/react-query";
+import { useState } from "react";
 
 export default function Dashboard() {
   const { user } = useAuth();
+  const { toast } = useToast();
   const userName = user?.displayName || "Citizen";
+  const [isRefreshing, setIsRefreshing] = useState(false);
+
+  const { data: trafficCard, refetch: refetchTraffic } = useQuery({
+    queryKey: [`traffic-card-${user?.uid}`],
+    queryFn: async () => {
+      if (!user?.uid) return null;
+      const res = await fetch(`/api/dashboard/traffic/${user.uid}`);
+      return res.ok ? res.json() : {
+        location: "3rd Mainland Bridge",
+        status: "active",
+        description: "Multiple vehicle collision reported. Route calculation suggests +45min delay."
+      };
+    },
+    enabled: !!user?.uid,
+  });
+
+  const { data: credits } = useQuery({
+    queryKey: [`credits-${user?.uid}`],
+    queryFn: async () => {
+      if (!user?.uid) return null;
+      const res = await fetch(`/api/credits/${user.uid}`);
+      return res.ok ? res.json() : null;
+    },
+    enabled: !!user?.uid,
+  });
+
+  const handleRefreshTraffic = async () => {
+    if (!user?.uid || !trafficCard) return;
+
+    setIsRefreshing(true);
+    try {
+      const res = await fetch(`/api/dashboard/traffic/${user.uid}/refresh`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          location: trafficCard.location || "3rd Mainland Bridge",
+          status: ['active', 'cleared', 'normal'][Math.floor(Math.random() * 3)],
+          description: trafficCard.description
+        })
+      });
+
+      if (res.ok) {
+        toast({ title: "Success", description: "Traffic status updated (1 credit used)" });
+        refetchTraffic();
+      } else {
+        const data = await res.json();
+        toast({ title: "Error", description: data.error || "Failed to refresh", variant: "destructive" });
+      }
+    } catch (err) {
+      toast({ title: "Error", description: "Failed to refresh traffic", variant: "destructive" });
+    } finally {
+      setIsRefreshing(false);
+    }
+  };
 
   return (
     <div className="space-y-8">
@@ -26,18 +85,67 @@ export default function Dashboard() {
 
       {/* Critical Alerts Grid */}
       <div className="grid md:grid-cols-3 gap-6">
-        <Card className="bg-red-50 border-red-100 shadow-sm hover:shadow-md transition-shadow">
+        <Card className={`shadow-sm hover:shadow-md transition-shadow border ${
+          trafficCard?.status === 'cleared'
+            ? 'bg-green-50 border-green-100'
+            : trafficCard?.status === 'active'
+            ? 'bg-red-50 border-red-100'
+            : 'bg-yellow-50 border-yellow-100'
+        }`}>
           <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
-            <CardTitle className="text-sm font-bold text-red-600 uppercase tracking-wider flex items-center gap-2">
+            <CardTitle className={`text-sm font-bold uppercase tracking-wider flex items-center gap-2 ${
+              trafficCard?.status === 'cleared'
+                ? 'text-green-600'
+                : trafficCard?.status === 'active'
+                ? 'text-red-600'
+                : 'text-yellow-600'
+            }`}>
               <AlertTriangle className="h-4 w-4" /> Traffic Alert
             </CardTitle>
-            <span className="text-[10px] font-bold bg-white px-2 py-1 rounded-full text-red-600 border border-red-100">LAGOS</span>
+            <div className="flex items-center gap-2">
+              <span className={`text-[10px] font-bold px-2 py-1 rounded-full border ${
+                trafficCard?.status === 'cleared'
+                  ? 'bg-white text-green-600 border-green-100'
+                  : trafficCard?.status === 'active'
+                  ? 'bg-white text-red-600 border-red-100'
+                  : 'bg-white text-yellow-600 border-yellow-100'
+              }`}>LAGOS</span>
+              <Badge className={`text-xs ${
+                trafficCard?.status === 'cleared'
+                  ? 'bg-green-600 text-white'
+                  : trafficCard?.status === 'active'
+                  ? 'bg-red-600 text-white'
+                  : 'bg-yellow-600 text-white'
+              }`}>
+                {trafficCard?.status?.toUpperCase() || 'UNKNOWN'}
+              </Badge>
+            </div>
           </CardHeader>
-          <CardContent>
-            <div className="text-2xl font-bold mb-1">3rd Mainland Bridge</div>
-            <p className="text-xs text-slate-600">
-              Multiple vehicle collision reported. Route calculation suggests +45min delay.
-            </p>
+          <CardContent className="space-y-3">
+            <div>
+              <div className="text-2xl font-bold mb-1">{trafficCard?.location || "3rd Mainland Bridge"}</div>
+              <p className="text-xs text-slate-600">
+                {trafficCard?.description || "Multiple vehicle collision reported. Route calculation suggests +45min delay."}
+              </p>
+            </div>
+            
+            <Button
+              onClick={handleRefreshTraffic}
+              disabled={isRefreshing}
+              size="sm"
+              variant="outline"
+              className="w-full gap-2"
+            >
+              <RefreshCw className={`h-3 w-3 ${isRefreshing ? 'animate-spin' : ''}`} />
+              {isRefreshing ? 'Updating...' : 'Check Status (1 credit)'}
+            </Button>
+            
+            {credits && (
+              <div className="text-xs flex items-center gap-1 text-slate-500 bg-slate-50 p-2 rounded">
+                <Zap className="h-3 w-3 text-yellow-600" />
+                {Math.max(0, (credits.totalCredits || 0) - (credits.usedCredits || 0))} credits available
+              </div>
+            )}
           </CardContent>
         </Card>
 

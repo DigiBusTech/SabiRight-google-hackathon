@@ -182,6 +182,91 @@ export async function registerRoutes(
     res.json({ success: true });
   });
 
+  // KYC & Vendor Endpoints
+  app.post("/api/kyc/:userId/submit", async (req, res) => {
+    const { userId } = req.params;
+    const { kycDocument } = req.body;
+
+    await storage.updateUserKYC(userId, 'pending', kycDocument);
+    res.json({ success: true, status: 'pending' });
+  });
+
+  app.get("/api/profile/:userId", async (req, res) => {
+    const { userId } = req.params;
+    const profile = await storage.getUserProfile(userId);
+    res.json(profile || {});
+  });
+
+  app.patch("/api/profile/:userId", async (req, res) => {
+    const { userId } = req.params;
+    await storage.updateUserProfile(userId, req.body);
+    res.json({ success: true });
+  });
+
+  app.post("/api/vendor/apply", async (req, res) => {
+    const { userId, businessName, serviceType, businessDocument, taxId } = req.body;
+    
+    if (!userId || !businessName || !serviceType) {
+      return res.status(400).json({ error: 'Missing required fields' });
+    }
+
+    const application = await storage.submitVendorApplication(userId, {
+      businessName,
+      serviceType,
+      businessDocument,
+      taxId
+    });
+
+    res.json(application);
+  });
+
+  app.get("/api/vendor/application/:userId", async (req, res) => {
+    const { userId } = req.params;
+    const application = await storage.getVendorApplication(userId);
+    res.json(application || {});
+  });
+
+  app.patch("/api/vendor/mode/:userId", async (req, res) => {
+    const { userId } = req.params;
+    const { vendorMode } = req.body;
+
+    const profile = await storage.getUserProfile(userId);
+    if (!profile?.isVendor) {
+      return res.status(403).json({ error: 'Not approved as vendor' });
+    }
+
+    await storage.switchVendorMode(userId, vendorMode);
+    res.json({ success: true, vendorMode });
+  });
+
+  // Dashboard Traffic
+  app.get("/api/dashboard/traffic/:userId", async (req, res) => {
+    const { userId } = req.params;
+    const traffic = await storage.getDashboardTraffic(userId);
+    res.json(traffic || {});
+  });
+
+  app.post("/api/dashboard/traffic/:userId/refresh", async (req, res) => {
+    const { userId } = req.params;
+    const { location, status, description } = req.body;
+
+    const credits = await storage.getUserCredits(userId);
+    if (!credits) {
+      return res.status(402).json({ error: 'No credits account' });
+    }
+
+    const totalCredits = credits.totalCredits || 0;
+    const usedCredits = credits.usedCredits || 0;
+    if (totalCredits - usedCredits < 1) {
+      return res.status(402).json({ error: 'Insufficient credits for refresh' });
+    }
+
+    await storage.deductCredits(userId, 1, 'traffic_refresh', 'Daily traffic alert refresh');
+    await storage.updateDashboardTraffic(userId, location, status, description);
+
+    res.json({ success: true });
+  });
+
   // Subscriptions
   app.get("/api/subscription/:userId", async (req, res) => {
     const { userId } = req.params;

@@ -1,4 +1,4 @@
-import { type User, type InsertUser, type Subscription, type Credits, type Plan, type CreditLog, type CloakedRoute, type TrafficAlert } from "@shared/schema";
+import { type User, type InsertUser, type Subscription, type Credits, type Plan, type CreditLog, type CloakedRoute, type TrafficAlert, type DashboardTrafficCard, type UserProfile, type VendorApplication } from "@shared/schema";
 import { randomUUID } from "crypto";
 
 export interface IStorage {
@@ -37,6 +37,20 @@ export interface IStorage {
   getRouteAlerts(routeId: string, limit?: number): Promise<TrafficAlert[]>;
   createAlert(alert: any): Promise<TrafficAlert>;
   acknowledgeAlert(alertId: string): Promise<void>;
+
+  // KYC & Vendor
+  updateUserKYC(userId: string, kycStatus: string, kycDocument?: string): Promise<void>;
+  getUserProfile(userId: string): Promise<UserProfile | undefined>;
+  updateUserProfile(userId: string, profile: any): Promise<void>;
+  submitVendorApplication(userId: string, app: any): Promise<VendorApplication>;
+  getVendorApplication(userId: string): Promise<VendorApplication | undefined>;
+  approveVendorApplication(userId: string): Promise<void>;
+  rejectVendorApplication(userId: string): Promise<void>;
+  switchVendorMode(userId: string, vendorMode: boolean): Promise<void>;
+
+  // Dashboard Traffic
+  getDashboardTraffic(userId: string): Promise<DashboardTrafficCard | undefined>;
+  updateDashboardTraffic(userId: string, location: string, status: string, description: string): Promise<void>;
 }
 
 export class MemStorage implements IStorage {
@@ -47,6 +61,9 @@ export class MemStorage implements IStorage {
   private plans: Map<string, Plan>;
   private routes: Map<string, CloakedRoute>;
   private alerts: Map<string, TrafficAlert>;
+  private userProfiles: Map<string, UserProfile>;
+  private vendorApplications: Map<string, VendorApplication>;
+  private dashboardTraffic: Map<string, DashboardTrafficCard>;
 
   constructor() {
     this.users = new Map();
@@ -56,6 +73,9 @@ export class MemStorage implements IStorage {
     this.plans = this.initializePlans();
     this.routes = new Map();
     this.alerts = new Map();
+    this.userProfiles = new Map();
+    this.vendorApplications = new Map();
+    this.dashboardTraffic = new Map();
   }
 
   private initializePlans(): Map<string, Plan> {
@@ -348,6 +368,108 @@ export class MemStorage implements IStorage {
       alert.acknowledgedAt = new Date();
       this.alerts.set(alertId, alert);
     }
+  }
+
+  // KYC & Vendor
+  async updateUserKYC(userId: string, kycStatus: string, kycDocument?: string): Promise<void> {
+    const profile = this.userProfiles.get(userId);
+    if (profile) {
+      profile.kycStatus = kycStatus;
+      if (kycDocument) profile.kycDocument = kycDocument;
+      if (kycStatus === 'verified') {
+        profile.kycVerifiedAt = new Date();
+      }
+      profile.kycSubmittedAt = new Date();
+      this.userProfiles.set(userId, profile);
+    }
+  }
+
+  async getUserProfile(userId: string): Promise<UserProfile | undefined> {
+    return this.userProfiles.get(userId);
+  }
+
+  async updateUserProfile(userId: string, profile: any): Promise<void> {
+    const existing = this.userProfiles.get(userId);
+    if (existing) {
+      const updated = { ...existing, ...profile };
+      this.userProfiles.set(userId, updated);
+    }
+  }
+
+  async submitVendorApplication(userId: string, app: any): Promise<VendorApplication> {
+    const id = randomUUID();
+    const application: VendorApplication = {
+      ...app,
+      id,
+      userId,
+      status: 'pending',
+      kycStatus: 'pending',
+      createdAt: new Date()
+    };
+    this.vendorApplications.set(id, application);
+    return application;
+  }
+
+  async getVendorApplication(userId: string): Promise<VendorApplication | undefined> {
+    return Array.from(this.vendorApplications.values()).find(a => a.userId === userId);
+  }
+
+  async approveVendorApplication(userId: string): Promise<void> {
+    const app = Array.from(this.vendorApplications.values()).find(a => a.userId === userId);
+    if (app) {
+      app.status = 'approved';
+      app.approvedAt = new Date();
+      app.kycStatus = 'verified';
+      app.kycVerifiedAt = new Date();
+      this.vendorApplications.set(app.id, app);
+      
+      const profile = this.userProfiles.get(userId);
+      if (profile) {
+        profile.isVendor = true;
+        this.userProfiles.set(userId, profile);
+      }
+    }
+  }
+
+  async rejectVendorApplication(userId: string): Promise<void> {
+    const app = Array.from(this.vendorApplications.values()).find(a => a.userId === userId);
+    if (app) {
+      app.status = 'rejected';
+      this.vendorApplications.set(app.id, app);
+    }
+  }
+
+  async switchVendorMode(userId: string, vendorMode: boolean): Promise<void> {
+    const profile = this.userProfiles.get(userId);
+    if (profile && profile.isVendor) {
+      profile.vendorMode = vendorMode;
+      this.userProfiles.set(userId, profile);
+    }
+  }
+
+  async getDashboardTraffic(userId: string): Promise<DashboardTrafficCard | undefined> {
+    return this.dashboardTraffic.get(userId);
+  }
+
+  async updateDashboardTraffic(userId: string, location: string, status: string, description: string): Promise<void> {
+    const existing = this.dashboardTraffic.get(userId);
+    const traffic: DashboardTrafficCard = existing || {
+      id: randomUUID(),
+      userId,
+      location,
+      status,
+      description,
+      lastUpdated: new Date(),
+      lastRefreshedAt: new Date()
+    };
+    if (existing) {
+      traffic.location = location;
+      traffic.status = status;
+      traffic.description = description;
+      traffic.lastUpdated = new Date();
+      traffic.lastRefreshedAt = new Date();
+    }
+    this.dashboardTraffic.set(userId, traffic);
   }
 }
 

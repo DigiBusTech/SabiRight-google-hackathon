@@ -14,6 +14,11 @@ export const userProfiles = pgTable("user_profiles", {
   email: text("email"),
   displayName: text("display_name"),
   isVendor: boolean("is_vendor").default(false),
+  kycStatus: text("kyc_status").default("pending"), // 'pending', 'verified', 'rejected'
+  kycDocument: text("kyc_document"),
+  kycSubmittedAt: timestamp("kyc_submitted_at"),
+  kycVerifiedAt: timestamp("kyc_verified_at"),
+  vendorMode: boolean("vendor_mode").default(false),
   createdAt: timestamp("created_at").defaultNow(),
 });
 
@@ -65,9 +70,13 @@ export const vendorApplications = pgTable("vendor_applications", {
   userId: varchar("user_id").notNull().references(() => users.id),
   businessName: text("business_name").notNull(),
   serviceType: text("service_type").notNull(),
+  businessDocument: text("business_document"),
+  taxId: text("tax_id"),
   status: text("status").notNull(), // 'pending', 'approved', 'rejected'
+  kycStatus: text("kyc_status").default("pending"), // 'pending', 'verified', 'rejected'
   createdAt: timestamp("created_at").defaultNow(),
   approvedAt: timestamp("approved_at"),
+  kycVerifiedAt: timestamp("kyc_verified_at"),
 });
 
 export const cloakedRoutes = pgTable("cloaked_routes", {
@@ -95,6 +104,16 @@ export const trafficAlerts = pgTable("traffic_alerts", {
   severity: text("severity"), // 'high', 'medium', 'low'
   createdAt: timestamp("created_at").defaultNow(),
   acknowledgedAt: timestamp("acknowledged_at"),
+});
+
+export const dashboardTrafficCards = pgTable("dashboard_traffic_cards", {
+  id: varchar("id").primaryKey().default(sql`gen_random_uuid()`),
+  userId: varchar("user_id").notNull().references(() => users.id),
+  location: text("location").notNull(),
+  status: text("status").notNull(), // 'active', 'cleared', 'normal'
+  description: text("description"),
+  lastUpdated: timestamp("last_updated").defaultNow(),
+  lastRefreshedAt: timestamp("last_refreshed_at"),
 });
 
 // Insert schemas
@@ -127,3 +146,4 @@ export type CreditLog = typeof creditLog.$inferSelect;
 export type VendorApplication = typeof vendorApplications.$inferSelect;
 export type CloakedRoute = typeof cloakedRoutes.$inferSelect;
 export type TrafficAlert = typeof trafficAlerts.$inferSelect;
+export type DashboardTrafficCard = typeof dashboardTrafficCards.$inferSelect;

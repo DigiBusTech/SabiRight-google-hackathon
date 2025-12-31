@@ -15,7 +15,9 @@ import {
   Zap,
   AlertTriangle,
   BadgeCheck,
-  BarChart3
+  BarChart3,
+  Wallet,
+  CalendarCheck
 } from "lucide-react";
 import { useState } from "react";
 import { Button } from "@/components/ui/button";
@@ -59,8 +61,11 @@ export default function AppLayout({ children }: AppLayoutProps) {
     { icon: Store, label: "SabiMarket", href: "/app/marketplace", description: "Find Pros" },
     { icon: Users, label: "SabiSquare", href: "/app/forum", description: "Community" },
     { icon: Calendar, label: "Events", href: "/app/events" },
+    { icon: CalendarCheck, label: "My Bookings", href: "/app/bookings" },
+    { icon: Wallet, label: "Wallet", href: "/app/wallet" },
     { icon: BadgeCheck, label: "KYC Verification", href: "/app/kyc" },
     { icon: Zap, label: "Plans & Billing", href: "/app/plans" },
+    { icon: Settings, label: "Settings", href: "/app/settings" },
   ];
 
   const vendorItems = profile?.isVendor ? [
@@ -140,22 +145,24 @@ export default function AppLayout({ children }: AppLayoutProps) {
         </nav>
 
         <div className="p-4 border-t border-slate-800">
-          <div className="bg-slate-800/50 rounded-xl p-4 mb-4">
-             <div className="flex items-center gap-3 mb-2">
-                <Avatar className="h-10 w-10 border-2 border-primary">
-                  <AvatarImage src={user?.photoURL || ""} />
-                  <AvatarFallback>{user?.displayName?.charAt(0) || "U"}</AvatarFallback>
-                </Avatar>
-                <div className="overflow-hidden">
-                  <p className="font-bold text-sm truncate">{user?.displayName || "Citizen"}</p>
-                  <p className="text-xs text-slate-400 truncate">{user?.email}</p>
-                </div>
-             </div>
-             <div className="flex justify-between items-center text-xs text-slate-400">
-                <span>Verified</span>
-                <span className="text-primary font-bold"><ShieldCheck className="inline h-3 w-3"/> Active</span>
-             </div>
-          </div>
+          <Link href="/app/settings" data-testid="link-user-settings">
+            <div className="bg-slate-800/50 rounded-xl p-4 mb-4 cursor-pointer hover:bg-slate-800 transition-colors">
+               <div className="flex items-center gap-3 mb-2">
+                  <Avatar className="h-10 w-10 border-2 border-primary">
+                    <AvatarImage src={user?.photoURL || ""} />
+                    <AvatarFallback>{user?.displayName?.charAt(0) || "U"}</AvatarFallback>
+                  </Avatar>
+                  <div className="overflow-hidden">
+                    <p className="font-bold text-sm truncate">{user?.displayName || "Citizen"}</p>
+                    <p className="text-xs text-slate-400 truncate">{user?.email}</p>
+                  </div>
+               </div>
+               <div className="flex justify-between items-center text-xs text-slate-400">
+                  <span>Verified</span>
+                  <span className="text-primary font-bold"><ShieldCheck className="inline h-3 w-3"/> Active</span>
+               </div>
+            </div>
+          </Link>
           
           <Button 
             variant="ghost" 
@@ -182,10 +189,11 @@ export default function AppLayout({ children }: AppLayoutProps) {
             </h1>
           </div>
           <div className="flex items-center gap-4">
-             <Button size="icon" variant="ghost" className="relative text-slate-500 hover:text-primary">
-               <div className="absolute top-2 right-2 w-2 h-2 bg-red-500 rounded-full border border-white" />
-               <Settings className="h-5 w-5" />
-             </Button>
+             <Link href="/app/settings" data-testid="link-settings-header">
+               <Button size="icon" variant="ghost" className="relative text-slate-500 hover:text-primary">
+                 <Settings className="h-5 w-5" />
+               </Button>
+             </Link>
           </div>
         </header>
 

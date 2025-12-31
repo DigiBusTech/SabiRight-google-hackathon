@@ -19,8 +19,10 @@ import KYCVerification from "@/pages/app/KYC";
 import VendorDashboard from "@/pages/app/VendorDashboard";
 import Wallet from "@/pages/app/Wallet";
 import Bookings from "@/pages/app/Bookings";
+import BookingDetail from "@/pages/app/BookingDetail";
 import AdminDashboard from "@/pages/admin/AdminDashboard";
 import Login from "@/pages/auth/Login";
+import Settings from "@/pages/app/Settings";
 
 function Router() {
   return (
@@ -64,6 +66,12 @@ function Router() {
       </Route>
       <Route path="/app/bookings">
         <AppLayout><Bookings /></AppLayout>
+      </Route>
+      <Route path="/app/bookings/:id">
+        <AppLayout><BookingDetail /></AppLayout>
+      </Route>
+      <Route path="/app/settings">
+        <AppLayout><Settings /></AppLayout>
       </Route>
       <Route path="/admin" component={AdminDashboard} />
 

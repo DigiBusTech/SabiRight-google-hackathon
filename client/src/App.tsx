@@ -23,6 +23,7 @@ import BookingDetail from "@/pages/app/BookingDetail";
 import AdminDashboard from "@/pages/admin/AdminDashboard";
 import Login from "@/pages/auth/Login";
 import Settings from "@/pages/app/Settings";
+import Notifications from "@/pages/app/Notifications";
 
 function Router() {
   return (
@@ -72,6 +73,9 @@ function Router() {
       </Route>
       <Route path="/app/settings">
         <AppLayout><Settings /></AppLayout>
+      </Route>
+      <Route path="/app/notifications">
+        <AppLayout><Notifications /></AppLayout>
       </Route>
       <Route path="/admin" component={AdminDashboard} />
 

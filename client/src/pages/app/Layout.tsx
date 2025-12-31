@@ -17,7 +17,8 @@ import {
   BadgeCheck,
   BarChart3,
   Wallet,
-  CalendarCheck
+  CalendarCheck,
+  Bell
 } from "lucide-react";
 import { useState } from "react";
 import { Button } from "@/components/ui/button";
@@ -27,6 +28,7 @@ import { auth } from "@/lib/firebase";
 import { signOut } from "firebase/auth";
 import { Switch } from "@/components/ui/switch";
 import { Label } from "@/components/ui/label";
+import NotificationBell from "@/components/NotificationBell";
 
 interface AppLayoutProps {
   children: React.ReactNode;
@@ -188,7 +190,8 @@ export default function AppLayout({ children }: AppLayoutProps) {
               {location.split('/').pop() || 'Dashboard'}
             </h1>
           </div>
-          <div className="flex items-center gap-4">
+          <div className="flex items-center gap-2">
+             <NotificationBell />
              <Link href="/app/settings" data-testid="link-settings-header">
                <Button size="icon" variant="ghost" className="relative text-slate-500 hover:text-primary">
                  <Settings className="h-5 w-5" />

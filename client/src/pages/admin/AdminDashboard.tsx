@@ -7,8 +7,12 @@ import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { Switch } from "@/components/ui/switch";
 import { 
   Settings, Users, CreditCard, MapPin, Calendar, Briefcase, Store, 
-  Shield, Key, CheckCircle2, XCircle, Eye, EyeOff, Save
+  Shield, Key, CheckCircle2, XCircle, Eye, EyeOff, Save, Bell, Mail, Trash2, Plus, Edit
 } from "lucide-react";
+import { Checkbox } from "@/components/ui/checkbox";
+import { Textarea } from "@/components/ui/textarea";
+import { Label } from "@/components/ui/label";
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { useToast } from "@/hooks/use-toast";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { useAuth } from "@/context/AuthContext";
@@ -291,6 +295,145 @@ export default function AdminDashboard() {
   const [newPlan, setNewPlan] = useState({ name: '', type: 'basic', userType: 'user', price: 0, credits: 10, description: '' });
   const [editingPlan, setEditingPlan] = useState<any>(null);
 
+  const [editingTemplate, setEditingTemplate] = useState<any>(null);
+  const [newTemplate, setNewTemplate] = useState({
+    name: '',
+    type: 'system',
+    subject: '',
+    bodyTemplate: '',
+    channels: { email: true, push: false, in_app: true }
+  });
+  const [smtpSettings, setSmtpSettings] = useState({
+    host: '',
+    port: '587',
+    username: '',
+    password: '',
+    fromEmail: '',
+    fromName: '',
+    encryption: 'tls'
+  });
+
+  const { data: notificationTemplates = [] } = useQuery({
+    queryKey: ['admin-notification-templates'],
+    queryFn: async () => {
+      const headers = await getAdminHeaders();
+      const res = await fetch('/api/admin/notifications/templates', { headers });
+      return res.ok ? res.json() : [];
+    }
+  });
+
+  const { data: smtpData } = useQuery({
+    queryKey: ['admin-smtp-settings'],
+    queryFn: async () => {
+      const headers = await getAdminHeaders();
+      const res = await fetch('/api/admin/notifications/smtp', { headers });
+      if (res.ok) {
+        const data = await res.json();
+        if (data) {
+          setSmtpSettings({
+            host: data.host || '',
+            port: data.port?.toString() || '587',
+            username: data.username || '',
+            password: data.password || '',
+            fromEmail: data.fromEmail || '',
+            fromName: data.fromName || '',
+            encryption: data.encryption || 'tls'
+          });
+        }
+        return data;
+      }
+      return null;
+    }
+  });
+
+  const createTemplate = useMutation({
+    mutationFn: async (template: any) => {
+      const headers = await getAdminHeaders();
+      const res = await fetch('/api/admin/notifications/templates', {
+        method: 'POST',
+        headers,
+        body: JSON.stringify(template)
+      });
+      if (!res.ok) throw new Error('Failed to create template');
+      return res.json();
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ['admin-notification-templates'] });
+      toast({ title: "Created", description: "Notification template created successfully" });
+      setNewTemplate({ name: '', type: 'system', subject: '', bodyTemplate: '', channels: { email: true, push: false, in_app: true } });
+    }
+  });
+
+  const updateTemplate = useMutation({
+    mutationFn: async ({ templateId, updates }: { templateId: string; updates: any }) => {
+      const headers = await getAdminHeaders();
+      const res = await fetch(`/api/admin/notifications/templates/${templateId}`, {
+        method: 'PUT',
+        headers,
+        body: JSON.stringify(updates)
+      });
+      if (!res.ok) throw new Error('Failed to update template');
+      return res.json();
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ['admin-notification-templates'] });
+      toast({ title: "Updated", description: "Notification template updated successfully" });
+      setEditingTemplate(null);
+    }
+  });
+
+  const deleteTemplate = useMutation({
+    mutationFn: async (templateId: string) => {
+      const headers = await getAdminHeaders();
+      const res = await fetch(`/api/admin/notifications/templates/${templateId}`, {
+        method: 'DELETE',
+        headers
+      });
+      if (!res.ok) throw new Error('Failed to delete template');
+      return res.json();
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ['admin-notification-templates'] });
+      toast({ title: "Deleted", description: "Notification template deleted successfully" });
+    }
+  });
+
+  const saveSmtpSettings = useMutation({
+    mutationFn: async (settings: any) => {
+      const headers = await getAdminHeaders();
+      const res = await fetch('/api/admin/notifications/smtp', {
+        method: 'POST',
+        headers,
+        body: JSON.stringify(settings)
+      });
+      if (!res.ok) throw new Error('Failed to save SMTP settings');
+      return res.json();
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ['admin-smtp-settings'] });
+      toast({ title: "Saved", description: "SMTP settings saved successfully" });
+    }
+  });
+
+  const testSmtpConnection = useMutation({
+    mutationFn: async () => {
+      const headers = await getAdminHeaders();
+      const res = await fetch('/api/admin/notifications/smtp/test', {
+        method: 'POST',
+        headers,
+        body: JSON.stringify(smtpSettings)
+      });
+      if (!res.ok) throw new Error('SMTP connection test failed');
+      return res.json();
+    },
+    onSuccess: () => {
+      toast({ title: "Success", description: "SMTP connection test successful" });
+    },
+    onError: () => {
+      toast({ title: "Failed", description: "SMTP connection test failed", variant: "destructive" });
+    }
+  });
+
   const getSetting = (key: string) => settings.find((s: any) => s.key === key)?.value || '';
 
   const [localSettings, setLocalSettings] = useState<Record<string, string>>({});
@@ -380,6 +523,7 @@ export default function AdminDashboard() {
               <TabsTrigger value="payments" className="text-xs md:text-sm whitespace-nowrap"><CreditCard className="h-3 w-3 md:h-4 md:w-4 mr-1 md:mr-2" /><span className="hidden sm:inline">Payments</span><span className="sm:hidden">Pay</span></TabsTrigger>
               <TabsTrigger value="users" className="text-xs md:text-sm whitespace-nowrap"><Users className="h-3 w-3 md:h-4 md:w-4 mr-1 md:mr-2" /> Users</TabsTrigger>
               <TabsTrigger value="vendors" className="text-xs md:text-sm whitespace-nowrap"><Store className="h-3 w-3 md:h-4 md:w-4 mr-1 md:mr-2" /><span className="hidden sm:inline">Vendors</span><span className="sm:hidden">Vend</span></TabsTrigger>
+              <TabsTrigger value="notifications" className="text-xs md:text-sm whitespace-nowrap" data-testid="tab-notifications"><Bell className="h-3 w-3 md:h-4 md:w-4 mr-1 md:mr-2" /><span className="hidden sm:inline">Notifications</span><span className="sm:hidden">Notif</span></TabsTrigger>
             </TabsList>
           </div>
 
@@ -1041,6 +1185,383 @@ export default function AdminDashboard() {
                 )}
               </CardContent>
             </Card>
+          </TabsContent>
+
+          {/* Notifications Tab */}
+          <TabsContent value="notifications">
+            <div className="space-y-6">
+              {/* Notification Templates Section */}
+              <Card>
+                <CardHeader>
+                  <CardTitle className="flex items-center gap-2">
+                    <Bell className="h-5 w-5 text-blue-500" />
+                    Notification Templates
+                  </CardTitle>
+                </CardHeader>
+                <CardContent className="space-y-6">
+                  {/* Create New Template Form */}
+                  <div className="p-4 border rounded-lg bg-slate-50">
+                    <h4 className="font-semibold mb-4 flex items-center gap-2">
+                      <Plus className="h-4 w-4" />
+                      Create New Template
+                    </h4>
+                    <div className="grid md:grid-cols-2 gap-4">
+                      <div className="space-y-2">
+                        <Label htmlFor="template-name">Template Name</Label>
+                        <Input
+                          id="template-name"
+                          data-testid="input-template-name"
+                          placeholder="e.g., Welcome Email"
+                          value={newTemplate.name}
+                          onChange={(e) => setNewTemplate({ ...newTemplate, name: e.target.value })}
+                        />
+                      </div>
+                      <div className="space-y-2">
+                        <Label htmlFor="template-type">Type</Label>
+                        <Select
+                          value={newTemplate.type}
+                          onValueChange={(value) => setNewTemplate({ ...newTemplate, type: value })}
+                        >
+                          <SelectTrigger data-testid="select-template-type">
+                            <SelectValue placeholder="Select type" />
+                          </SelectTrigger>
+                          <SelectContent>
+                            <SelectItem value="system">System</SelectItem>
+                            <SelectItem value="marketing">Marketing</SelectItem>
+                            <SelectItem value="transactional">Transactional</SelectItem>
+                            <SelectItem value="alert">Alert</SelectItem>
+                          </SelectContent>
+                        </Select>
+                      </div>
+                      <div className="space-y-2 md:col-span-2">
+                        <Label htmlFor="template-subject">Subject</Label>
+                        <Input
+                          id="template-subject"
+                          data-testid="input-template-subject"
+                          placeholder="e.g., Welcome to {{appName}}!"
+                          value={newTemplate.subject}
+                          onChange={(e) => setNewTemplate({ ...newTemplate, subject: e.target.value })}
+                        />
+                      </div>
+                      <div className="space-y-2 md:col-span-2">
+                        <Label htmlFor="template-body">Body Template</Label>
+                        <Textarea
+                          id="template-body"
+                          data-testid="textarea-template-body"
+                          placeholder="Hello {{userName}}, welcome to our platform..."
+                          rows={4}
+                          value={newTemplate.bodyTemplate}
+                          onChange={(e) => setNewTemplate({ ...newTemplate, bodyTemplate: e.target.value })}
+                        />
+                        <p className="text-xs text-slate-500">
+                          Use {"{{variable}}"} placeholders for dynamic content. Common variables: {"{{userName}}"}, {"{{email}}"}, {"{{appName}}"}, {"{{link}}"}
+                        </p>
+                      </div>
+                      <div className="space-y-3 md:col-span-2">
+                        <Label>Channels</Label>
+                        <div className="flex flex-wrap gap-6">
+                          <div className="flex items-center gap-2">
+                            <Checkbox
+                              id="channel-email"
+                              data-testid="checkbox-channel-email"
+                              checked={newTemplate.channels.email}
+                              onCheckedChange={(checked) => setNewTemplate({
+                                ...newTemplate,
+                                channels: { ...newTemplate.channels, email: checked as boolean }
+                              })}
+                            />
+                            <Label htmlFor="channel-email" className="flex items-center gap-1 cursor-pointer">
+                              <Mail className="h-4 w-4" /> Email
+                            </Label>
+                          </div>
+                          <div className="flex items-center gap-2">
+                            <Checkbox
+                              id="channel-push"
+                              data-testid="checkbox-channel-push"
+                              checked={newTemplate.channels.push}
+                              onCheckedChange={(checked) => setNewTemplate({
+                                ...newTemplate,
+                                channels: { ...newTemplate.channels, push: checked as boolean }
+                              })}
+                            />
+                            <Label htmlFor="channel-push" className="flex items-center gap-1 cursor-pointer">
+                              <Bell className="h-4 w-4" /> Push
+                            </Label>
+                          </div>
+                          <div className="flex items-center gap-2">
+                            <Checkbox
+                              id="channel-inapp"
+                              data-testid="checkbox-channel-inapp"
+                              checked={newTemplate.channels.in_app}
+                              onCheckedChange={(checked) => setNewTemplate({
+                                ...newTemplate,
+                                channels: { ...newTemplate.channels, in_app: checked as boolean }
+                              })}
+                            />
+                            <Label htmlFor="channel-inapp" className="flex items-center gap-1 cursor-pointer">
+                              <Bell className="h-4 w-4" /> In-App
+                            </Label>
+                          </div>
+                        </div>
+                      </div>
+                    </div>
+                    <Button
+                      className="mt-4"
+                      data-testid="button-create-template"
+                      onClick={() => createTemplate.mutate(newTemplate)}
+                      disabled={!newTemplate.name || !newTemplate.subject || !newTemplate.bodyTemplate}
+                    >
+                      <Plus className="h-4 w-4 mr-2" />
+                      Create Template
+                    </Button>
+                  </div>
+
+                  {/* Existing Templates List */}
+                  <div className="space-y-3">
+                    <h4 className="font-semibold">Existing Templates ({notificationTemplates.length})</h4>
+                    {notificationTemplates.length === 0 ? (
+                      <p className="text-center py-8 text-slate-400">No notification templates created yet</p>
+                    ) : (
+                      <div className="space-y-3">
+                        {notificationTemplates.map((template: any) => (
+                          <div key={template.id} className="p-4 border rounded-lg" data-testid={`template-row-${template.id}`}>
+                            {editingTemplate?.id === template.id ? (
+                              <div className="space-y-4">
+                                <div className="grid md:grid-cols-2 gap-4">
+                                  <Input
+                                    value={editingTemplate.name}
+                                    onChange={(e) => setEditingTemplate({ ...editingTemplate, name: e.target.value })}
+                                    placeholder="Template Name"
+                                  />
+                                  <Select
+                                    value={editingTemplate.type}
+                                    onValueChange={(value) => setEditingTemplate({ ...editingTemplate, type: value })}
+                                  >
+                                    <SelectTrigger>
+                                      <SelectValue />
+                                    </SelectTrigger>
+                                    <SelectContent>
+                                      <SelectItem value="system">System</SelectItem>
+                                      <SelectItem value="marketing">Marketing</SelectItem>
+                                      <SelectItem value="transactional">Transactional</SelectItem>
+                                      <SelectItem value="alert">Alert</SelectItem>
+                                    </SelectContent>
+                                  </Select>
+                                  <Input
+                                    className="md:col-span-2"
+                                    value={editingTemplate.subject}
+                                    onChange={(e) => setEditingTemplate({ ...editingTemplate, subject: e.target.value })}
+                                    placeholder="Subject"
+                                  />
+                                  <Textarea
+                                    className="md:col-span-2"
+                                    value={editingTemplate.bodyTemplate}
+                                    onChange={(e) => setEditingTemplate({ ...editingTemplate, bodyTemplate: e.target.value })}
+                                    placeholder="Body Template"
+                                    rows={3}
+                                  />
+                                </div>
+                                <div className="flex flex-wrap gap-6">
+                                  <div className="flex items-center gap-2">
+                                    <Checkbox
+                                      checked={editingTemplate.channels?.email ?? false}
+                                      onCheckedChange={(checked) => setEditingTemplate({
+                                        ...editingTemplate,
+                                        channels: { ...editingTemplate.channels, email: checked as boolean }
+                                      })}
+                                    />
+                                    <Label className="flex items-center gap-1"><Mail className="h-4 w-4" /> Email</Label>
+                                  </div>
+                                  <div className="flex items-center gap-2">
+                                    <Checkbox
+                                      checked={editingTemplate.channels?.push ?? false}
+                                      onCheckedChange={(checked) => setEditingTemplate({
+                                        ...editingTemplate,
+                                        channels: { ...editingTemplate.channels, push: checked as boolean }
+                                      })}
+                                    />
+                                    <Label className="flex items-center gap-1"><Bell className="h-4 w-4" /> Push</Label>
+                                  </div>
+                                  <div className="flex items-center gap-2">
+                                    <Checkbox
+                                      checked={editingTemplate.channels?.in_app ?? false}
+                                      onCheckedChange={(checked) => setEditingTemplate({
+                                        ...editingTemplate,
+                                        channels: { ...editingTemplate.channels, in_app: checked as boolean }
+                                      })}
+                                    />
+                                    <Label className="flex items-center gap-1"><Bell className="h-4 w-4" /> In-App</Label>
+                                  </div>
+                                </div>
+                                <div className="flex gap-2">
+                                  <Button
+                                    size="sm"
+                                    onClick={() => updateTemplate.mutate({
+                                      templateId: template.id,
+                                      updates: editingTemplate
+                                    })}
+                                  >
+                                    Save
+                                  </Button>
+                                  <Button size="sm" variant="outline" onClick={() => setEditingTemplate(null)}>
+                                    Cancel
+                                  </Button>
+                                </div>
+                              </div>
+                            ) : (
+                              <div className="flex flex-col sm:flex-row sm:items-start justify-between gap-3">
+                                <div className="flex-1">
+                                  <div className="flex items-center gap-2 mb-1">
+                                    <p className="font-bold text-sm md:text-base">{template.name}</p>
+                                    <Badge variant="outline" className="text-[10px]">{template.type}</Badge>
+                                  </div>
+                                  <p className="text-sm text-slate-600 mb-1">{template.subject}</p>
+                                  <p className="text-xs text-slate-400 line-clamp-2">{template.bodyTemplate}</p>
+                                  <div className="flex gap-2 mt-2">
+                                    {template.channels?.email && <Badge variant="secondary" className="text-[10px]"><Mail className="h-3 w-3 mr-1" />Email</Badge>}
+                                    {template.channels?.push && <Badge variant="secondary" className="text-[10px]"><Bell className="h-3 w-3 mr-1" />Push</Badge>}
+                                    {template.channels?.in_app && <Badge variant="secondary" className="text-[10px]"><Bell className="h-3 w-3 mr-1" />In-App</Badge>}
+                                  </div>
+                                </div>
+                                <div className="flex gap-2">
+                                  <Button
+                                    size="sm"
+                                    variant="outline"
+                                    data-testid={`button-edit-template-${template.id}`}
+                                    onClick={() => setEditingTemplate(template)}
+                                  >
+                                    <Edit className="h-4 w-4" />
+                                  </Button>
+                                  <Button
+                                    size="sm"
+                                    variant="destructive"
+                                    data-testid={`button-delete-template-${template.id}`}
+                                    onClick={() => deleteTemplate.mutate(template.id)}
+                                  >
+                                    <Trash2 className="h-4 w-4" />
+                                  </Button>
+                                </div>
+                              </div>
+                            )}
+                          </div>
+                        ))}
+                      </div>
+                    )}
+                  </div>
+                </CardContent>
+              </Card>
+
+              {/* SMTP Settings Section */}
+              <Card>
+                <CardHeader>
+                  <CardTitle className="flex items-center gap-2">
+                    <Mail className="h-5 w-5 text-green-500" />
+                    SMTP Settings
+                  </CardTitle>
+                </CardHeader>
+                <CardContent>
+                  <div className="grid md:grid-cols-2 gap-4">
+                    <div className="space-y-2">
+                      <Label htmlFor="smtp-host">SMTP Host</Label>
+                      <Input
+                        id="smtp-host"
+                        data-testid="input-smtp-host"
+                        placeholder="smtp.example.com"
+                        value={smtpSettings.host}
+                        onChange={(e) => setSmtpSettings({ ...smtpSettings, host: e.target.value })}
+                      />
+                    </div>
+                    <div className="space-y-2">
+                      <Label htmlFor="smtp-port">Port</Label>
+                      <Input
+                        id="smtp-port"
+                        data-testid="input-smtp-port"
+                        placeholder="587"
+                        value={smtpSettings.port}
+                        onChange={(e) => setSmtpSettings({ ...smtpSettings, port: e.target.value })}
+                      />
+                    </div>
+                    <div className="space-y-2">
+                      <Label htmlFor="smtp-username">Username</Label>
+                      <Input
+                        id="smtp-username"
+                        data-testid="input-smtp-username"
+                        placeholder="your-email@example.com"
+                        value={smtpSettings.username}
+                        onChange={(e) => setSmtpSettings({ ...smtpSettings, username: e.target.value })}
+                      />
+                    </div>
+                    <div className="space-y-2">
+                      <Label htmlFor="smtp-password">Password</Label>
+                      <Input
+                        id="smtp-password"
+                        data-testid="input-smtp-password"
+                        type="password"
+                        placeholder="••••••••"
+                        value={smtpSettings.password}
+                        onChange={(e) => setSmtpSettings({ ...smtpSettings, password: e.target.value })}
+                      />
+                    </div>
+                    <div className="space-y-2">
+                      <Label htmlFor="smtp-from-email">From Email</Label>
+                      <Input
+                        id="smtp-from-email"
+                        data-testid="input-smtp-from-email"
+                        placeholder="noreply@example.com"
+                        value={smtpSettings.fromEmail}
+                        onChange={(e) => setSmtpSettings({ ...smtpSettings, fromEmail: e.target.value })}
+                      />
+                    </div>
+                    <div className="space-y-2">
+                      <Label htmlFor="smtp-from-name">From Name</Label>
+                      <Input
+                        id="smtp-from-name"
+                        data-testid="input-smtp-from-name"
+                        placeholder="My App"
+                        value={smtpSettings.fromName}
+                        onChange={(e) => setSmtpSettings({ ...smtpSettings, fromName: e.target.value })}
+                      />
+                    </div>
+                    <div className="space-y-2 md:col-span-2">
+                      <Label htmlFor="smtp-encryption">Encryption</Label>
+                      <Select
+                        value={smtpSettings.encryption}
+                        onValueChange={(value) => setSmtpSettings({ ...smtpSettings, encryption: value })}
+                      >
+                        <SelectTrigger data-testid="select-smtp-encryption">
+                          <SelectValue placeholder="Select encryption" />
+                        </SelectTrigger>
+                        <SelectContent>
+                          <SelectItem value="tls">TLS</SelectItem>
+                          <SelectItem value="ssl">SSL</SelectItem>
+                          <SelectItem value="none">None</SelectItem>
+                        </SelectContent>
+                      </Select>
+                    </div>
+                  </div>
+                  <div className="flex gap-3 mt-6">
+                    <Button
+                      data-testid="button-save-smtp"
+                      onClick={() => saveSmtpSettings.mutate({
+                        ...smtpSettings,
+                        port: parseInt(smtpSettings.port) || 587
+                      })}
+                    >
+                      <Save className="h-4 w-4 mr-2" />
+                      Save Settings
+                    </Button>
+                    <Button
+                      variant="outline"
+                      data-testid="button-test-smtp"
+                      onClick={() => testSmtpConnection.mutate()}
+                      disabled={!smtpSettings.host || !smtpSettings.username}
+                    >
+                      Test Connection
+                    </Button>
+                  </div>
+                </CardContent>
+              </Card>
+            </div>
           </TabsContent>
         </Tabs>
       </div>

@@ -7,7 +7,8 @@ import { Link } from "wouter";
 import { useAuth } from "@/context/AuthContext";
 import { useToast } from "@/hooks/use-toast";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
-import { useState } from "react";
+import { useState, useEffect } from "react";
+import AISuggestions, { hasShownThisSession } from "@/components/AISuggestions";
 
 const CITY_STATE_MAP: Record<string, string> = {
   "Lagos": "Lagos",
@@ -37,6 +38,17 @@ export default function Dashboard() {
   const [isRefreshing, setIsRefreshing] = useState(false);
   const [selectedCity, setSelectedCity] = useState(profile?.city || "");
   const [isSavingCity, setIsSavingCity] = useState(false);
+  const [showAISuggestions, setShowAISuggestions] = useState(false);
+
+  useEffect(() => {
+    if (!user || hasShownThisSession()) return;
+    
+    const timer = setTimeout(() => {
+      setShowAISuggestions(true);
+    }, 3000);
+
+    return () => clearTimeout(timer);
+  }, [user]);
 
   const handleCityChange = async (city: string) => {
     setSelectedCity(city);
@@ -451,6 +463,11 @@ export default function Dashboard() {
           </Card>
         </div>
       </div>
+
+      <AISuggestions
+        isOpen={showAISuggestions}
+        onClose={() => setShowAISuggestions(false)}
+      />
     </div>
   );
 }

@@ -446,6 +446,37 @@ export async function registerRoutes(
     res.json({ success: true });
   });
 
+  // Saved Events
+  app.post("/api/events/:eventId/save", async (req, res) => {
+    const { eventId } = req.params;
+    const { userId } = req.body;
+
+    if (!userId) {
+      return res.status(400).json({ error: 'User ID required' });
+    }
+
+    await storage.saveEvent(userId, eventId);
+    res.json({ success: true });
+  });
+
+  app.delete("/api/events/:eventId/save", async (req, res) => {
+    const { eventId } = req.params;
+    const { userId } = req.body;
+
+    if (!userId) {
+      return res.status(400).json({ error: 'User ID required' });
+    }
+
+    await storage.unsaveEvent(userId, eventId);
+    res.json({ success: true });
+  });
+
+  app.get("/api/events/saved/:userId", async (req, res) => {
+    const { userId } = req.params;
+    const savedEventIds = await storage.getSavedEvents(userId);
+    res.json(savedEventIds);
+  });
+
   // Vendor Services
   app.get("/api/services", async (req, res) => {
     const services = await storage.getVendorServices();
@@ -782,6 +813,98 @@ export async function registerRoutes(
     });
 
     res.json(job);
+  });
+
+  // Save Job
+  app.post("/api/jobs/:jobId/save", async (req, res) => {
+    const { jobId } = req.params;
+    const { userId } = req.body;
+
+    if (!userId) {
+      return res.status(400).json({ error: 'User ID required' });
+    }
+
+    await storage.saveJob(userId, jobId);
+    res.json({ success: true });
+  });
+
+  // Unsave Job
+  app.delete("/api/jobs/:jobId/save", async (req, res) => {
+    const { jobId } = req.params;
+    const { userId } = req.body;
+
+    if (!userId) {
+      return res.status(400).json({ error: 'User ID required' });
+    }
+
+    await storage.unsaveJob(userId, jobId);
+    res.json({ success: true });
+  });
+
+  // Get Saved Jobs
+  app.get("/api/jobs/saved/:userId", async (req, res) => {
+    const { userId } = req.params;
+    const jobs = await storage.getSavedJobs(userId);
+    res.json(jobs);
+  });
+
+  // Get Saved Job IDs (for quick lookup)
+  app.get("/api/jobs/saved-ids/:userId", async (req, res) => {
+    const { userId } = req.params;
+    const jobIds = await storage.getSavedJobIds(userId);
+    res.json(jobIds);
+  });
+
+  // Apply to Job
+  app.post("/api/jobs/:jobId/apply", async (req, res) => {
+    const { jobId } = req.params;
+    const { userId } = req.body;
+
+    if (!userId) {
+      return res.status(400).json({ error: 'User ID required' });
+    }
+
+    const application = await storage.applyToJob(userId, jobId);
+    res.json(application);
+  });
+
+  // Get Applied Jobs
+  app.get("/api/jobs/applied/:userId", async (req, res) => {
+    const { userId } = req.params;
+    const jobs = await storage.getAppliedJobs(userId);
+    res.json(jobs);
+  });
+
+  // Get Applied Job IDs (for quick lookup)
+  app.get("/api/jobs/applied-ids/:userId", async (req, res) => {
+    const { userId } = req.params;
+    const jobIds = await storage.getAppliedJobIds(userId);
+    res.json(jobIds);
+  });
+
+  // Update Application Status
+  app.patch("/api/jobs/:jobId/application-status", async (req, res) => {
+    const { jobId } = req.params;
+    const { userId, status } = req.body;
+
+    if (!userId || !status) {
+      return res.status(400).json({ error: 'User ID and status required' });
+    }
+
+    const validStatuses = ['applied', 'reviewing', 'interviewing', 'accepted', 'rejected'];
+    if (!validStatuses.includes(status)) {
+      return res.status(400).json({ error: 'Invalid status' });
+    }
+
+    await storage.updateApplicationStatus(userId, jobId, status);
+    res.json({ success: true, status });
+  });
+
+  // Get AI Generated Jobs for User
+  app.get("/api/jobs/generated/:userId", async (req, res) => {
+    const { userId } = req.params;
+    const jobs = await storage.getGeneratedJobs(userId);
+    res.json(jobs);
   });
 
   // AI Generation API
@@ -1535,6 +1658,194 @@ export async function registerRoutes(
     }
 
     res.json(dispute);
+  });
+
+  // ===== Notification API =====
+
+  // Get user notifications
+  app.get("/api/notifications/:userId", userAuth, async (req, res) => {
+    const { userId } = req.params;
+    const { limit } = req.query;
+    
+    const notifications = await storage.getNotificationsByUserId(
+      userId,
+      limit ? parseInt(limit as string) : 50
+    );
+    
+    res.json(notifications);
+  });
+
+  // Get unread notification count
+  app.get("/api/notifications/:userId/unread", userAuth, async (req, res) => {
+    const { userId } = req.params;
+    const count = await storage.getUnreadNotificationCount(userId);
+    res.json({ count });
+  });
+
+  // Mark single notification as read
+  app.post("/api/notifications/:userId/read/:notificationId", userAuth, async (req, res) => {
+    const { userId, notificationId } = req.params;
+    
+    const notification = await storage.getNotificationById(notificationId);
+    if (!notification) {
+      return res.status(404).json({ error: 'Notification not found' });
+    }
+    
+    if (notification.userId !== userId) {
+      return res.status(403).json({ error: 'Access denied' });
+    }
+    
+    await storage.markNotificationAsRead(notificationId);
+    res.json({ success: true });
+  });
+
+  // Mark all notifications as read
+  app.post("/api/notifications/:userId/read-all", userAuth, async (req, res) => {
+    const { userId } = req.params;
+    const count = await storage.markAllNotificationsAsRead(userId);
+    res.json({ success: true, markedCount: count });
+  });
+
+  // ===== Admin Notification Templates API =====
+
+  // List all templates
+  app.get("/api/admin/notifications/templates", adminAuth, async (req, res) => {
+    const templates = await storage.getAllNotificationTemplates();
+    res.json(templates);
+  });
+
+  // Create template
+  app.post("/api/admin/notifications/templates", adminAuth, async (req, res) => {
+    const { name, type, subject, bodyTemplate, channels, isActive } = req.body;
+    
+    if (!name || !type || !subject || !bodyTemplate) {
+      return res.status(400).json({ error: 'name, type, subject, and bodyTemplate are required' });
+    }
+    
+    const existing = await storage.getNotificationTemplateByName(name);
+    if (existing) {
+      return res.status(409).json({ error: 'Template with this name already exists' });
+    }
+    
+    const template = await storage.createNotificationTemplate({
+      name,
+      type,
+      subject,
+      bodyTemplate,
+      channels: channels || ['in_app'],
+      isActive: isActive !== false
+    });
+    
+    res.json(template);
+  });
+
+  // Update template
+  app.patch("/api/admin/notifications/templates/:id", adminAuth, async (req, res) => {
+    const { id } = req.params;
+    const updates = req.body;
+    
+    const template = await storage.updateNotificationTemplate(id, updates);
+    if (!template) {
+      return res.status(404).json({ error: 'Template not found' });
+    }
+    
+    res.json(template);
+  });
+
+  // Delete template
+  app.delete("/api/admin/notifications/templates/:id", adminAuth, async (req, res) => {
+    const { id } = req.params;
+    
+    const success = await storage.deleteNotificationTemplate(id);
+    if (!success) {
+      return res.status(404).json({ error: 'Template not found' });
+    }
+    
+    res.json({ success: true });
+  });
+
+  // ===== Admin SMTP Settings API =====
+
+  // Get SMTP settings
+  app.get("/api/admin/notifications/smtp", adminAuth, async (req, res) => {
+    const settings = await storage.getSmtpSettings();
+    
+    if (!settings) {
+      return res.json({ configured: false });
+    }
+    
+    res.json({
+      ...settings,
+      password: '••••••••',
+      configured: true
+    });
+  });
+
+  // Update SMTP settings
+  app.post("/api/admin/notifications/smtp", adminAuth, async (req, res) => {
+    const { host, port, username, password, fromEmail, fromName, encryption, isActive } = req.body;
+    
+    if (!host || !port || !username || !password || !fromEmail || !fromName) {
+      return res.status(400).json({ 
+        error: 'host, port, username, password, fromEmail, and fromName are required' 
+      });
+    }
+    
+    const settings = await storage.updateSmtpSettings({
+      host,
+      port: parseInt(port),
+      username,
+      password,
+      fromEmail,
+      fromName,
+      encryption: encryption || 'tls',
+      isActive: isActive !== false
+    });
+    
+    res.json({
+      ...settings,
+      password: '••••••••'
+    });
+  });
+
+  // ===== Push Subscription API =====
+
+  // Subscribe to push notifications
+  app.post("/api/notifications/:userId/push/subscribe", userAuth, async (req, res) => {
+    const { userId } = req.params;
+    const { endpoint, keys } = req.body;
+    
+    if (!endpoint || !keys || !keys.p256dh || !keys.auth) {
+      return res.status(400).json({ error: 'endpoint and keys (p256dh, auth) are required' });
+    }
+    
+    const subscription = await storage.subscribeToPush({
+      userId,
+      endpoint,
+      keys
+    });
+    
+    res.json(subscription);
+  });
+
+  // Unsubscribe from push notifications
+  app.post("/api/notifications/:userId/push/unsubscribe", userAuth, async (req, res) => {
+    const { userId } = req.params;
+    const { endpoint } = req.body;
+    
+    if (!endpoint) {
+      return res.status(400).json({ error: 'endpoint is required' });
+    }
+    
+    const success = await storage.unsubscribeFromPush(userId, endpoint);
+    res.json({ success });
+  });
+
+  // Get user's push subscriptions
+  app.get("/api/notifications/:userId/push", userAuth, async (req, res) => {
+    const { userId } = req.params;
+    const subscriptions = await storage.getPushSubscriptions(userId);
+    res.json(subscriptions);
   });
 
   return httpServer;

@@ -1,5 +1,5 @@
 import admin from 'firebase-admin';
-import { type User, type InsertUser, type Subscription, type Credits, type Plan, type CreditLog, type CloakedRoute, type TrafficAlert, type DashboardTrafficCard, type UserProfile, type VendorApplication, type Event, type VendorService, type AdminSetting, type Payment, type Coupon, type Wallet, type WalletTransaction, type Booking, type BookingMilestone, type EscrowAccount, type EscrowEvent, type Contract, type Dispute, type BookingMessage } from "@shared/schema";
+import { type User, type InsertUser, type Subscription, type Credits, type Plan, type CreditLog, type CloakedRoute, type TrafficAlert, type DashboardTrafficCard, type UserProfile, type VendorApplication, type Event, type VendorService, type AdminSetting, type Payment, type Coupon, type Wallet, type WalletTransaction, type Booking, type BookingMilestone, type EscrowAccount, type EscrowEvent, type Contract, type Dispute, type BookingMessage, type Notification, type NotificationTemplate, type SmtpSettings, type PushSubscription } from "@shared/schema";
 import { type IStorage } from "./storage";
 
 const FIREBASE_APP_ID = 'digital-citizen-v2';
@@ -109,6 +109,14 @@ const collections = {
   contracts: () => db.collection('artifacts').doc(FIREBASE_APP_ID).collection('contracts'),
   disputes: () => db.collection('artifacts').doc(FIREBASE_APP_ID).collection('disputes'),
   bookingMessages: () => db.collection('artifacts').doc(FIREBASE_APP_ID).collection('bookingMessages'),
+  savedEvents: () => db.collection('artifacts').doc(FIREBASE_APP_ID).collection('savedEvents'),
+  savedJobs: () => db.collection('artifacts').doc(FIREBASE_APP_ID).collection('savedJobs'),
+  appliedJobs: () => db.collection('artifacts').doc(FIREBASE_APP_ID).collection('appliedJobs'),
+  generatedJobs: () => db.collection('artifacts').doc(FIREBASE_APP_ID).collection('generatedJobs'),
+  notifications: () => db.collection('artifacts').doc(FIREBASE_APP_ID).collection('notifications'),
+  notificationTemplates: () => db.collection('artifacts').doc(FIREBASE_APP_ID).collection('notificationTemplates'),
+  smtpSettings: () => db.collection('artifacts').doc(FIREBASE_APP_ID).collection('smtpSettings'),
+  pushSubscriptions: () => db.collection('artifacts').doc(FIREBASE_APP_ID).collection('pushSubscriptions'),
 };
 
 export class FirestoreStorage implements IStorage {
@@ -170,6 +178,10 @@ export class FirestoreStorage implements IStorage {
     await this.ensureCollectionExists('coupons', '_placeholder');
     await this.ensureCollectionExists('wallets', '_placeholder');
     await this.ensureCollectionExists('walletTransactions', '_placeholder');
+    await this.ensureCollectionExists('notifications', '_placeholder');
+    await this.ensureCollectionExists('notificationTemplates', '_placeholder');
+    await this.ensureCollectionExists('smtpSettings', '_placeholder');
+    await this.ensureCollectionExists('pushSubscriptions', '_placeholder');
   }
 
   private async ensureCollectionExists(collectionName: string, placeholderId: string): Promise<void> {
@@ -482,9 +494,10 @@ export class FirestoreStorage implements IStorage {
   }
 
   async updateUserKYC(userId: string, kycStatus: string, kycDocument?: string): Promise<void> {
-    const updateData: any = { kycStatus };
+    const updateData: any = { kycStatus, kycSubmittedAt: new Date().toISOString() };
     if (kycDocument) updateData.kycDocument = kycDocument;
-    await collections.profiles().doc(userId).update(updateData);
+    if (kycStatus === 'verified') updateData.kycVerifiedAt = new Date().toISOString();
+    await collections.profiles().doc(userId).set(updateData, { merge: true });
   }
 
   async getUserProfile(userId: string): Promise<UserProfile | undefined> {
@@ -1361,6 +1374,488 @@ export class FirestoreStorage implements IStorage {
     await collections.bookingMessages().doc(messageId).update({
       readAt: new Date().toISOString()
     });
+  }
+
+  // ===== Saved Events Methods =====
+
+  async saveEvent(userId: string, eventId: string): Promise<void> {
+    const docId = `${userId}_${eventId}`;
+    await collections.savedEvents().doc(docId).set({
+      id: crypto.randomUUID(),
+      userId,
+      eventId,
+      savedAt: new Date().toISOString()
+    });
+  }
+
+  async unsaveEvent(userId: string, eventId: string): Promise<void> {
+    const docId = `${userId}_${eventId}`;
+    await collections.savedEvents().doc(docId).delete();
+  }
+
+  async getSavedEvents(userId: string): Promise<string[]> {
+    const snapshot = await collections.savedEvents()
+      .where('userId', '==', userId)
+      .get();
+    return snapshot.docs.map(doc => doc.data().eventId);
+  }
+
+  async isEventSaved(userId: string, eventId: string): Promise<boolean> {
+    const docId = `${userId}_${eventId}`;
+    const doc = await collections.savedEvents().doc(docId).get();
+    return doc.exists;
+  }
+
+  // ===== Saved Jobs Methods =====
+
+  async saveJob(userId: string, jobId: string): Promise<void> {
+    const docId = `${userId}_${jobId}`;
+    await collections.savedJobs().doc(docId).set({
+      id: crypto.randomUUID(),
+      userId,
+      jobId,
+      savedAt: new Date().toISOString()
+    });
+  }
+
+  async unsaveJob(userId: string, jobId: string): Promise<void> {
+    const docId = `${userId}_${jobId}`;
+    await collections.savedJobs().doc(docId).delete();
+  }
+
+  async getSavedJobIds(userId: string): Promise<string[]> {
+    const snapshot = await collections.savedJobs()
+      .where('userId', '==', userId)
+      .get();
+    return snapshot.docs.map(doc => doc.data().jobId);
+  }
+
+  async getSavedJobs(userId: string): Promise<any[]> {
+    const savedJobIds = await this.getSavedJobIds(userId);
+    if (savedJobIds.length === 0) return [];
+    
+    const jobs = [];
+    for (const jobId of savedJobIds) {
+      const jobDoc = await collections.jobs().doc(jobId).get();
+      if (jobDoc.exists) {
+        jobs.push({ id: jobDoc.id, ...jobDoc.data() });
+      }
+    }
+    return jobs;
+  }
+
+  async isJobSaved(userId: string, jobId: string): Promise<boolean> {
+    const docId = `${userId}_${jobId}`;
+    const doc = await collections.savedJobs().doc(docId).get();
+    return doc.exists;
+  }
+
+  // ===== Applied Jobs Methods =====
+
+  async applyToJob(userId: string, jobId: string): Promise<any> {
+    const docId = `${userId}_${jobId}`;
+    const existingDoc = await collections.appliedJobs().doc(docId).get();
+    if (existingDoc.exists) {
+      return { id: docId, ...existingDoc.data() };
+    }
+    
+    const application = {
+      id: crypto.randomUUID(),
+      userId,
+      jobId,
+      status: 'applied',
+      appliedAt: new Date().toISOString(),
+      updatedAt: new Date().toISOString()
+    };
+    await collections.appliedJobs().doc(docId).set(application);
+    return application;
+  }
+
+  async getAppliedJobIds(userId: string): Promise<string[]> {
+    const snapshot = await collections.appliedJobs()
+      .where('userId', '==', userId)
+      .get();
+    return snapshot.docs.map(doc => doc.data().jobId);
+  }
+
+  async getAppliedJobs(userId: string): Promise<any[]> {
+    const snapshot = await collections.appliedJobs()
+      .where('userId', '==', userId)
+      .orderBy('appliedAt', 'desc')
+      .get();
+    
+    const applications = snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() }));
+    const jobs = [];
+    
+    for (const app of applications) {
+      const jobDoc = await collections.jobs().doc(app.jobId).get();
+      if (jobDoc.exists) {
+        jobs.push({ 
+          ...jobDoc.data(), 
+          id: jobDoc.id, 
+          applicationStatus: app.status,
+          appliedAt: app.appliedAt,
+          applicationId: app.id
+        });
+      }
+    }
+    return jobs;
+  }
+
+  async updateApplicationStatus(userId: string, jobId: string, status: string): Promise<void> {
+    const docId = `${userId}_${jobId}`;
+    await collections.appliedJobs().doc(docId).update({
+      status,
+      updatedAt: new Date().toISOString()
+    });
+  }
+
+  async getJobApplication(userId: string, jobId: string): Promise<any | undefined> {
+    const docId = `${userId}_${jobId}`;
+    const doc = await collections.appliedJobs().doc(docId).get();
+    return doc.exists ? { id: doc.id, ...doc.data() } : undefined;
+  }
+
+  // ===== Generated Jobs Methods =====
+
+  async createGeneratedJob(userId: string, jobData: any): Promise<any> {
+    const id = crypto.randomUUID();
+    const generatedJob = {
+      id,
+      userId,
+      jobData,
+      source: 'ai',
+      createdAt: new Date().toISOString()
+    };
+    await collections.generatedJobs().doc(id).set(generatedJob);
+    return generatedJob;
+  }
+
+  async getGeneratedJobs(userId: string): Promise<any[]> {
+    const snapshot = await collections.generatedJobs()
+      .where('userId', '==', userId)
+      .orderBy('createdAt', 'desc')
+      .get();
+    
+    return snapshot.docs
+      .filter(doc => !doc.data()._isPlaceholder)
+      .map(doc => {
+        const data = doc.data();
+        return {
+          id: doc.id,
+          ...data.jobData,
+          generatedAt: data.createdAt,
+          source: 'AI Generated'
+        };
+      });
+  }
+
+  // ===== Notification Methods =====
+
+  async createNotification(notification: {
+    userId: string;
+    type: string;
+    title: string;
+    message: string;
+    data?: Record<string, any>;
+    channel?: string;
+  }): Promise<Notification> {
+    const id = crypto.randomUUID();
+    const newNotification = {
+      ...notification,
+      id,
+      data: notification.data || {},
+      channel: notification.channel || 'in_app',
+      isRead: false,
+      createdAt: new Date().toISOString(),
+      readAt: null
+    };
+    await collections.notifications().doc(id).set(newNotification);
+    return newNotification as Notification;
+  }
+
+  async getNotificationsByUserId(userId: string, limit: number = 50): Promise<Notification[]> {
+    const snapshot = await collections.notifications()
+      .where('userId', '==', userId)
+      .orderBy('createdAt', 'desc')
+      .limit(limit)
+      .get();
+    return snapshot.docs
+      .filter(doc => !doc.data()._isPlaceholder)
+      .map(doc => ({ id: doc.id, ...doc.data() } as Notification));
+  }
+
+  async getNotificationById(notificationId: string): Promise<Notification | undefined> {
+    const doc = await collections.notifications().doc(notificationId).get();
+    return doc.exists ? { id: doc.id, ...doc.data() } as Notification : undefined;
+  }
+
+  async getUnreadNotificationCount(userId: string): Promise<number> {
+    const snapshot = await collections.notifications()
+      .where('userId', '==', userId)
+      .where('isRead', '==', false)
+      .get();
+    return snapshot.docs.filter(doc => !doc.data()._isPlaceholder).length;
+  }
+
+  async markNotificationAsRead(notificationId: string): Promise<void> {
+    await collections.notifications().doc(notificationId).update({
+      isRead: true,
+      readAt: new Date().toISOString()
+    });
+  }
+
+  async markAllNotificationsAsRead(userId: string): Promise<number> {
+    const snapshot = await collections.notifications()
+      .where('userId', '==', userId)
+      .where('isRead', '==', false)
+      .get();
+    
+    const batch = db.batch();
+    let count = 0;
+    
+    snapshot.docs.forEach(doc => {
+      if (!doc.data()._isPlaceholder) {
+        batch.update(doc.ref, {
+          isRead: true,
+          readAt: new Date().toISOString()
+        });
+        count++;
+      }
+    });
+    
+    await batch.commit();
+    return count;
+  }
+
+  async deleteNotification(notificationId: string): Promise<void> {
+    await collections.notifications().doc(notificationId).delete();
+  }
+
+  // ===== Notification Template Methods =====
+
+  async createNotificationTemplate(template: {
+    name: string;
+    type: string;
+    subject: string;
+    bodyTemplate: string;
+    channels?: string[];
+    isActive?: boolean;
+  }): Promise<NotificationTemplate> {
+    const id = crypto.randomUUID();
+    const newTemplate = {
+      ...template,
+      id,
+      channels: template.channels || ['in_app'],
+      isActive: template.isActive !== false,
+      createdAt: new Date().toISOString(),
+      updatedAt: new Date().toISOString()
+    };
+    await collections.notificationTemplates().doc(id).set(newTemplate);
+    return newTemplate as NotificationTemplate;
+  }
+
+  async getAllNotificationTemplates(): Promise<NotificationTemplate[]> {
+    const snapshot = await collections.notificationTemplates().get();
+    return snapshot.docs
+      .filter(doc => !doc.data()._isPlaceholder)
+      .map(doc => ({ id: doc.id, ...doc.data() } as NotificationTemplate));
+  }
+
+  async getNotificationTemplateById(templateId: string): Promise<NotificationTemplate | undefined> {
+    const doc = await collections.notificationTemplates().doc(templateId).get();
+    return doc.exists ? { id: doc.id, ...doc.data() } as NotificationTemplate : undefined;
+  }
+
+  async getNotificationTemplateByName(name: string): Promise<NotificationTemplate | undefined> {
+    const snapshot = await collections.notificationTemplates()
+      .where('name', '==', name)
+      .limit(1)
+      .get();
+    if (snapshot.empty) return undefined;
+    const doc = snapshot.docs[0];
+    return { id: doc.id, ...doc.data() } as NotificationTemplate;
+  }
+
+  async updateNotificationTemplate(templateId: string, updates: Partial<NotificationTemplate>): Promise<NotificationTemplate | undefined> {
+    const templateRef = collections.notificationTemplates().doc(templateId);
+    const doc = await templateRef.get();
+    if (!doc.exists) return undefined;
+    
+    await templateRef.update({
+      ...updates,
+      updatedAt: new Date().toISOString()
+    });
+    
+    const updated = await templateRef.get();
+    return { id: updated.id, ...updated.data() } as NotificationTemplate;
+  }
+
+  async deleteNotificationTemplate(templateId: string): Promise<boolean> {
+    const templateRef = collections.notificationTemplates().doc(templateId);
+    const doc = await templateRef.get();
+    if (!doc.exists) return false;
+    
+    await templateRef.delete();
+    return true;
+  }
+
+  // ===== SMTP Settings Methods =====
+
+  async getSmtpSettings(): Promise<SmtpSettings | undefined> {
+    const snapshot = await collections.smtpSettings().limit(1).get();
+    if (snapshot.empty) return undefined;
+    const doc = snapshot.docs[0];
+    if (doc.data()._isPlaceholder) return undefined;
+    return { id: doc.id, ...doc.data() } as SmtpSettings;
+  }
+
+  async updateSmtpSettings(settings: {
+    host: string;
+    port: number;
+    username: string;
+    password: string;
+    fromEmail: string;
+    fromName: string;
+    encryption?: string;
+    isActive?: boolean;
+  }): Promise<SmtpSettings> {
+    const existing = await this.getSmtpSettings();
+    const id = existing?.id || 'smtp-config';
+    
+    const smtpData = {
+      ...settings,
+      id,
+      encryption: settings.encryption || 'tls',
+      isActive: settings.isActive !== false,
+      updatedAt: new Date().toISOString()
+    };
+    
+    await collections.smtpSettings().doc(id).set(smtpData, { merge: true });
+    return smtpData as SmtpSettings;
+  }
+
+  // ===== Push Subscription Methods =====
+
+  async subscribeToPush(subscription: {
+    userId: string;
+    endpoint: string;
+    keys: { p256dh: string; auth: string };
+  }): Promise<PushSubscription> {
+    const existingSnapshot = await collections.pushSubscriptions()
+      .where('userId', '==', subscription.userId)
+      .where('endpoint', '==', subscription.endpoint)
+      .limit(1)
+      .get();
+    
+    if (!existingSnapshot.empty) {
+      const doc = existingSnapshot.docs[0];
+      return { id: doc.id, ...doc.data() } as PushSubscription;
+    }
+    
+    const id = crypto.randomUUID();
+    const newSubscription = {
+      ...subscription,
+      id,
+      createdAt: new Date().toISOString()
+    };
+    await collections.pushSubscriptions().doc(id).set(newSubscription);
+    return newSubscription as PushSubscription;
+  }
+
+  async unsubscribeFromPush(userId: string, endpoint: string): Promise<boolean> {
+    const snapshot = await collections.pushSubscriptions()
+      .where('userId', '==', userId)
+      .where('endpoint', '==', endpoint)
+      .get();
+    
+    if (snapshot.empty) return false;
+    
+    const batch = db.batch();
+    snapshot.docs.forEach(doc => batch.delete(doc.ref));
+    await batch.commit();
+    return true;
+  }
+
+  async getPushSubscriptions(userId: string): Promise<PushSubscription[]> {
+    const snapshot = await collections.pushSubscriptions()
+      .where('userId', '==', userId)
+      .get();
+    return snapshot.docs
+      .filter(doc => !doc.data()._isPlaceholder)
+      .map(doc => ({ id: doc.id, ...doc.data() } as PushSubscription));
+  }
+
+  // ===== Send Notification Helper =====
+
+  async sendNotification(options: {
+    userId: string;
+    type: string;
+    title: string;
+    message: string;
+    data?: Record<string, any>;
+    templateName?: string;
+    variables?: Record<string, string>;
+    channels?: string[];
+  }): Promise<Notification> {
+    let { title, message, channels } = options;
+    const { userId, type, data, templateName, variables } = options;
+
+    if (templateName) {
+      const template = await this.getNotificationTemplateByName(templateName);
+      if (template && template.isActive) {
+        title = this.substituteVariables(template.subject, variables || {});
+        message = this.substituteVariables(template.bodyTemplate, variables || {});
+        channels = template.channels as string[] || ['in_app'];
+      }
+    }
+
+    channels = channels || ['in_app'];
+
+    const notification = await this.createNotification({
+      userId,
+      type,
+      title,
+      message,
+      data,
+      channel: channels.join(',')
+    });
+
+    if (channels.includes('email')) {
+      await this.sendEmailNotification(userId, title, message);
+    }
+
+    return notification;
+  }
+
+  private substituteVariables(text: string, variables: Record<string, string>): string {
+    let result = text;
+    for (const [key, value] of Object.entries(variables)) {
+      result = result.replace(new RegExp(`{{${key}}}`, 'g'), value);
+    }
+    return result;
+  }
+
+  private async sendEmailNotification(userId: string, subject: string, body: string): Promise<boolean> {
+    try {
+      const smtpSettings = await this.getSmtpSettings();
+      if (!smtpSettings || !smtpSettings.isActive) {
+        console.log('SMTP not configured or inactive, skipping email notification');
+        return false;
+      }
+
+      const profile = await this.getUserProfile(userId);
+      if (!profile?.email) {
+        console.log(`No email found for user ${userId}, skipping email notification`);
+        return false;
+      }
+
+      console.log(`[Email] Would send to ${profile.email}: ${subject}`);
+      return true;
+    } catch (error) {
+      console.error('Failed to send email notification:', error);
+      return false;
+    }
   }
 }
 

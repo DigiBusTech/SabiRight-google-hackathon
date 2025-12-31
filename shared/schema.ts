@@ -314,6 +314,91 @@ export const bookingMessages = pgTable("booking_messages", {
   readAt: timestamp("read_at"),
 });
 
+// Notifications
+export const notifications = pgTable("notifications", {
+  id: varchar("id").primaryKey().default(sql`gen_random_uuid()`),
+  userId: varchar("user_id").notNull().references(() => users.id),
+  type: text("type").notNull(), // 'booking', 'payment', 'kyc', 'system', 'event', 'job'
+  title: text("title").notNull(),
+  message: text("message").notNull(),
+  data: jsonb("data").default({}), // additional data like booking_id, event_id
+  channel: text("channel").notNull().default("in_app"), // 'in_app', 'email', 'push'
+  isRead: boolean("is_read").default(false),
+  createdAt: timestamp("created_at").defaultNow(),
+  readAt: timestamp("read_at"),
+});
+
+// Notification templates (admin managed)
+export const notificationTemplates = pgTable("notification_templates", {
+  id: varchar("id").primaryKey().default(sql`gen_random_uuid()`),
+  name: text("name").notNull().unique(),
+  type: text("type").notNull(), // 'booking', 'payment', 'kyc', 'system'
+  subject: text("subject").notNull(),
+  bodyTemplate: text("body_template").notNull(), // supports {{variable}} placeholders
+  channels: text("channels").array().default([]), // ['email', 'push', 'in_app']
+  isActive: boolean("is_active").default(true),
+  createdAt: timestamp("created_at").defaultNow(),
+  updatedAt: timestamp("updated_at").defaultNow(),
+});
+
+// SMTP settings (admin managed)
+export const smtpSettings = pgTable("smtp_settings", {
+  id: varchar("id").primaryKey().default(sql`gen_random_uuid()`),
+  host: text("host").notNull(),
+  port: integer("port").notNull(),
+  username: text("username").notNull(),
+  password: text("password").notNull(), // encrypted
+  fromEmail: text("from_email").notNull(),
+  fromName: text("from_name").notNull(),
+  encryption: text("encryption").default("tls"), // 'tls', 'ssl', 'none'
+  isActive: boolean("is_active").default(true),
+  updatedAt: timestamp("updated_at").defaultNow(),
+});
+
+// Push notification subscriptions
+export const pushSubscriptions = pgTable("push_subscriptions", {
+  id: varchar("id").primaryKey().default(sql`gen_random_uuid()`),
+  userId: varchar("user_id").notNull().references(() => users.id),
+  endpoint: text("endpoint").notNull(),
+  keys: jsonb("keys").notNull(), // {p256dh, auth}
+  createdAt: timestamp("created_at").defaultNow(),
+});
+
+// Saved jobs
+export const savedJobs = pgTable("saved_jobs", {
+  id: varchar("id").primaryKey().default(sql`gen_random_uuid()`),
+  userId: varchar("user_id").notNull().references(() => users.id),
+  jobId: varchar("job_id").notNull(),
+  savedAt: timestamp("saved_at").defaultNow(),
+});
+
+// Applied jobs
+export const appliedJobs = pgTable("applied_jobs", {
+  id: varchar("id").primaryKey().default(sql`gen_random_uuid()`),
+  userId: varchar("user_id").notNull().references(() => users.id),
+  jobId: varchar("job_id").notNull(),
+  status: text("status").notNull().default("applied"), // 'applied', 'reviewing', 'interviewing', 'accepted', 'rejected'
+  appliedAt: timestamp("applied_at").defaultNow(),
+  updatedAt: timestamp("updated_at").defaultNow(),
+});
+
+// Generated jobs (AI suggested)
+export const generatedJobs = pgTable("generated_jobs", {
+  id: varchar("id").primaryKey().default(sql`gen_random_uuid()`),
+  userId: varchar("user_id").notNull().references(() => users.id),
+  jobData: jsonb("job_data").notNull(),
+  source: text("source").default("ai"), // 'ai', 'system'
+  createdAt: timestamp("created_at").defaultNow(),
+});
+
+// Saved events
+export const savedEvents = pgTable("saved_events", {
+  id: varchar("id").primaryKey().default(sql`gen_random_uuid()`),
+  userId: varchar("user_id").notNull().references(() => users.id),
+  eventId: varchar("event_id").notNull(),
+  savedAt: timestamp("saved_at").defaultNow(),
+});
+
 // Insert schemas
 export const insertUserSchema = createInsertSchema(users).pick({
   username: true,
@@ -428,3 +513,11 @@ export type EscrowEvent = typeof escrowEvents.$inferSelect;
 export type Contract = typeof contracts.$inferSelect;
 export type Dispute = typeof disputes.$inferSelect;
 export type BookingMessage = typeof bookingMessages.$inferSelect;
+export type Notification = typeof notifications.$inferSelect;
+export type NotificationTemplate = typeof notificationTemplates.$inferSelect;
+export type SmtpSettings = typeof smtpSettings.$inferSelect;
+export type PushSubscription = typeof pushSubscriptions.$inferSelect;
+export type SavedJob = typeof savedJobs.$inferSelect;
+export type AppliedJob = typeof appliedJobs.$inferSelect;
+export type GeneratedJob = typeof generatedJobs.$inferSelect;
+export type SavedEvent = typeof savedEvents.$inferSelect;

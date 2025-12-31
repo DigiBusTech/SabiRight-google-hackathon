@@ -2,21 +2,55 @@ import { useState } from "react";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
+import { Textarea } from "@/components/ui/textarea";
 import { Badge } from "@/components/ui/badge";
-import { Store, FileCheck, TrendingUp, AlertCircle, ChevronRight } from "lucide-react";
+import { Store, FileCheck, TrendingUp, AlertCircle, ChevronRight, Plus, X, MapPin, Phone, Mail } from "lucide-react";
 import { useAuth } from "@/context/AuthContext";
 import { useToast } from "@/hooks/use-toast";
-import { useQuery } from "@tanstack/react-query";
+import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
+
+interface VendorService {
+  id: string;
+  name: string;
+  type: string;
+  specialization: string;
+  description: string;
+  location: string;
+  latitude: string;
+  longitude: string;
+  contactPhone: string;
+  contactEmail: string;
+  priceRange: string;
+  rating: string;
+  reviewCount: number;
+  verified: boolean;
+}
+
+const SERVICE_TYPES = ["Lawyer", "Plumber", "Electrician", "Health Professional", "Mover", "Real Estate Agent", "Cleaner", "Other"];
 
 export default function VendorDashboard() {
-  const { user } = useAuth();
+  const { user, profile } = useAuth();
   const { toast } = useToast();
+  const queryClient = useQueryClient();
   const [isApplying, setIsApplying] = useState(false);
+  const [showAddService, setShowAddService] = useState(false);
   const [businessForm, setBusinessForm] = useState({
     businessName: "",
     serviceType: "",
     businessDocument: "",
     taxId: ""
+  });
+  const [serviceForm, setServiceForm] = useState({
+    name: "",
+    type: "Lawyer",
+    specialization: "",
+    description: "",
+    location: "",
+    latitude: "",
+    longitude: "",
+    contactPhone: "",
+    contactEmail: "",
+    priceRange: ""
   });
 
   const { data: application, refetch } = useQuery({
@@ -27,6 +61,42 @@ export default function VendorDashboard() {
       return res.ok ? res.json() : null;
     },
     enabled: !!user?.uid,
+  });
+
+  const { data: services = [] } = useQuery({
+    queryKey: ['my-services', user?.uid],
+    queryFn: async () => {
+      if (!user?.uid) return [];
+      const res = await fetch('/api/services');
+      if (!res.ok) return [];
+      const allServices = await res.json();
+      return allServices.filter((s: VendorService) => s.vendorId === user.uid);
+    },
+    enabled: !!user?.uid && application?.status === 'approved',
+  });
+
+  const createServiceMutation = useMutation({
+    mutationFn: async (service: any) => {
+      const res = await fetch('/api/services', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ ...service, vendorId: user?.uid })
+      });
+      if (!res.ok) throw new Error('Failed to create service');
+      return res.json();
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ['my-services'] });
+      setShowAddService(false);
+      setServiceForm({
+        name: "", type: "Lawyer", specialization: "", description: "",
+        location: "", latitude: "", longitude: "", contactPhone: "", contactEmail: "", priceRange: ""
+      });
+      toast({ title: "Success", description: "Service listing created!" });
+    },
+    onError: () => {
+      toast({ title: "Error", description: "Failed to create service", variant: "destructive" });
+    }
   });
 
   const handleApplyAsVendor = async () => {
@@ -57,6 +127,39 @@ export default function VendorDashboard() {
       toast({ title: "Error", description: "Failed to submit application", variant: "destructive" });
     } finally {
       setIsApplying(false);
+    }
+  };
+
+  const handleCreateService = () => {
+    if (!serviceForm.name || !serviceForm.type || !serviceForm.location) {
+      toast({ title: "Error", description: "Please fill all required fields", variant: "destructive" });
+      return;
+    }
+
+    // Get current location if not provided
+    if (!serviceForm.latitude || !serviceForm.longitude) {
+      if (navigator.geolocation) {
+        navigator.geolocation.getCurrentPosition(
+          (position) => {
+            createServiceMutation.mutate({
+              ...serviceForm,
+              latitude: position.coords.latitude.toString(),
+              longitude: position.coords.longitude.toString()
+            });
+          },
+          () => {
+            createServiceMutation.mutate({
+              ...serviceForm,
+              latitude: "6.5244",
+              longitude: "3.3792"
+            });
+          }
+        );
+      } else {
+        createServiceMutation.mutate(serviceForm);
+      }
+    } else {
+      createServiceMutation.mutate(serviceForm);
     }
   };
 
@@ -110,7 +213,7 @@ export default function VendorDashboard() {
               <div className="p-3 bg-green-50 border border-green-200 rounded-lg flex items-start gap-3">
                 <AlertCircle className="h-5 w-5 text-green-600 flex-shrink-0 mt-0.5" />
                 <div>
-                  <p className="text-sm font-bold text-green-800">Approved! 🎉</p>
+                  <p className="text-sm font-bold text-green-800">Approved!</p>
                   <p className="text-xs text-green-700">You can now list services and access vendor tools</p>
                 </div>
               </div>
@@ -173,7 +276,7 @@ export default function VendorDashboard() {
         </Card>
       )}
 
-      {/* Vendor Benefits */}
+      {/* Vendor Stats and Services */}
       {application?.status === 'approved' && (
         <>
           <Card>
@@ -186,7 +289,7 @@ export default function VendorDashboard() {
             <CardContent>
               <div className="grid grid-cols-3 gap-4">
                 <div className="text-center">
-                  <p className="text-2xl font-bold">0</p>
+                  <p className="text-2xl font-bold">{services.length}</p>
                   <p className="text-xs text-slate-600">Active Listings</p>
                 </div>
                 <div className="text-center">
@@ -201,26 +304,161 @@ export default function VendorDashboard() {
             </CardContent>
           </Card>
 
+          {/* My Services */}
           <Card>
             <CardHeader className="pb-3">
-              <CardTitle className="text-base">Quick Actions</CardTitle>
+              <div className="flex items-center justify-between">
+                <CardTitle className="text-base">My Service Listings</CardTitle>
+                <Button size="sm" onClick={() => setShowAddService(true)}>
+                  <Plus className="h-4 w-4 mr-1" /> Add Service
+                </Button>
+              </div>
             </CardHeader>
-            <CardContent className="space-y-2">
-              {[
-                { label: 'Add Service Listing', href: '#' },
-                { label: 'View Bookings', href: '#' },
-                { label: 'Earnings', href: '#' }
-              ].map((action, i) => (
-                <button
-                  key={i}
-                  className="w-full p-3 text-left flex items-center justify-between rounded-lg border hover:border-primary hover:bg-primary/5 transition-colors"
-                >
-                  <span className="font-bold text-sm">{action.label}</span>
-                  <ChevronRight className="h-4 w-4 text-slate-400" />
-                </button>
-              ))}
+            <CardContent>
+              {services.length === 0 ? (
+                <div className="text-center py-8 text-slate-400">
+                  No services yet. Add your first service listing!
+                </div>
+              ) : (
+                <div className="space-y-3">
+                  {services.map((service: VendorService) => (
+                    <div key={service.id} className="p-4 border rounded-lg">
+                      <div className="flex items-start justify-between">
+                        <div>
+                          <p className="font-bold">{service.name}</p>
+                          <p className="text-sm text-slate-600">{service.type}</p>
+                          <p className="text-xs text-slate-500">{service.specialization}</p>
+                        </div>
+                        <Badge className={service.verified ? 'bg-green-100 text-green-800' : 'bg-yellow-100 text-yellow-800'}>
+                          {service.verified ? 'Verified' : 'Pending'}
+                        </Badge>
+                      </div>
+                      <div className="mt-3 flex gap-4 text-xs text-slate-500">
+                        <span className="flex items-center gap-1">
+                          <MapPin className="h-3 w-3" /> {service.location}
+                        </span>
+                        {service.contactPhone && (
+                          <span className="flex items-center gap-1">
+                            <Phone className="h-3 w-3" /> {service.contactPhone}
+                          </span>
+                        )}
+                      </div>
+                    </div>
+                  ))}
+                </div>
+              )}
             </CardContent>
           </Card>
+
+          {/* Add Service Modal */}
+          {showAddService && (
+            <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50 p-4">
+              <Card className="w-full max-w-lg bg-white max-h-[90vh] overflow-y-auto">
+                <CardContent className="p-6">
+                  <div className="flex justify-between items-center mb-6">
+                    <h3 className="text-xl font-bold">Add Service Listing</h3>
+                    <button onClick={() => setShowAddService(false)} className="p-2 hover:bg-slate-100 rounded-lg">
+                      <X className="h-5 w-5" />
+                    </button>
+                  </div>
+
+                  <div className="space-y-4">
+                    <div>
+                      <label className="block text-sm font-bold mb-1">Service Name *</label>
+                      <Input
+                        value={serviceForm.name}
+                        onChange={(e) => setServiceForm({...serviceForm, name: e.target.value})}
+                        placeholder="e.g., Barrister Adebayo Legal Services"
+                      />
+                    </div>
+
+                    <div>
+                      <label className="block text-sm font-bold mb-1">Service Type *</label>
+                      <select
+                        value={serviceForm.type}
+                        onChange={(e) => setServiceForm({...serviceForm, type: e.target.value})}
+                        className="w-full border rounded-lg p-2 text-sm"
+                      >
+                        {SERVICE_TYPES.map(type => (
+                          <option key={type} value={type}>{type}</option>
+                        ))}
+                      </select>
+                    </div>
+
+                    <div>
+                      <label className="block text-sm font-bold mb-1">Specialization</label>
+                      <Input
+                        value={serviceForm.specialization}
+                        onChange={(e) => setServiceForm({...serviceForm, specialization: e.target.value})}
+                        placeholder="e.g., Civil Rights & Family Law"
+                      />
+                    </div>
+
+                    <div>
+                      <label className="block text-sm font-bold mb-1">Description</label>
+                      <Textarea
+                        value={serviceForm.description}
+                        onChange={(e) => setServiceForm({...serviceForm, description: e.target.value})}
+                        placeholder="Describe your services..."
+                        rows={3}
+                      />
+                    </div>
+
+                    <div>
+                      <label className="block text-sm font-bold mb-1">Location *</label>
+                      <Input
+                        value={serviceForm.location}
+                        onChange={(e) => setServiceForm({...serviceForm, location: e.target.value})}
+                        placeholder="e.g., Victoria Island, Lagos"
+                      />
+                    </div>
+
+                    <div className="grid grid-cols-2 gap-4">
+                      <div>
+                        <label className="block text-sm font-bold mb-1">Contact Phone</label>
+                        <Input
+                          value={serviceForm.contactPhone}
+                          onChange={(e) => setServiceForm({...serviceForm, contactPhone: e.target.value})}
+                          placeholder="+234 xxx xxx xxxx"
+                        />
+                      </div>
+                      <div>
+                        <label className="block text-sm font-bold mb-1">Contact Email</label>
+                        <Input
+                          value={serviceForm.contactEmail}
+                          onChange={(e) => setServiceForm({...serviceForm, contactEmail: e.target.value})}
+                          placeholder="email@domain.com"
+                        />
+                      </div>
+                    </div>
+
+                    <div>
+                      <label className="block text-sm font-bold mb-1">Price Range</label>
+                      <select
+                        value={serviceForm.priceRange}
+                        onChange={(e) => setServiceForm({...serviceForm, priceRange: e.target.value})}
+                        className="w-full border rounded-lg p-2 text-sm"
+                      >
+                        <option value="">Select price range</option>
+                        <option value="$">Budget Friendly ($)</option>
+                        <option value="$$">Moderate ($$)</option>
+                        <option value="$$$">Premium ($$$)</option>
+                        <option value="$$$$">Luxury ($$$$)</option>
+                      </select>
+                    </div>
+
+                    <Button 
+                      onClick={handleCreateService} 
+                      className="w-full bg-primary hover:bg-primary/90"
+                      disabled={createServiceMutation.isPending}
+                    >
+                      {createServiceMutation.isPending ? 'Creating...' : 'Create Service Listing'}
+                    </Button>
+                  </div>
+                </CardContent>
+              </Card>
+            </div>
+          )}
         </>
       )}
     </div>

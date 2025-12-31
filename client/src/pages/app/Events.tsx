@@ -1,12 +1,13 @@
-import { useState, useEffect } from "react";
+import { useState } from "react";
 import { Card, CardContent } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
-import { Calendar, MapPin, Users, Clock } from "lucide-react";
-import { db, FIREBASE_APP_ID } from "@/lib/firebase";
-import { collection, query, orderBy, onSnapshot, addDoc, serverTimestamp, updateDoc, doc, increment, arrayUnion } from "firebase/firestore";
+import { Input } from "@/components/ui/input";
+import { Textarea } from "@/components/ui/textarea";
+import { Calendar, MapPin, Users, Clock, Plus, X } from "lucide-react";
 import { useAuth } from "@/context/AuthContext";
 import { useToast } from "@/hooks/use-toast";
+import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 
 interface Event {
   id: string;
@@ -19,35 +20,93 @@ interface Event {
   attendees: number;
   maxAttendees?: number;
   organizer: string;
+  organizerId?: string;
   registeredBy?: string[];
-  timestamp?: any;
 }
 
 export default function Events() {
   const { user } = useAuth();
   const { toast } = useToast();
-  const [events, setEvents] = useState<Event[]>([]);
-  const [loading, setLoading] = useState(true);
+  const queryClient = useQueryClient();
   const [selectedCategory, setSelectedCategory] = useState<string | null>(null);
+  const [showCreateDialog, setShowCreateDialog] = useState(false);
+  const [newEvent, setNewEvent] = useState({
+    title: "",
+    description: "",
+    date: "",
+    time: "",
+    location: "",
+    category: "Workshop",
+    maxAttendees: ""
+  });
 
   const categories = ["Workshop", "Civic Training", "Legal Aid", "Community Meeting", "Seminar"];
 
-  useEffect(() => {
-    const q = query(
-      collection(db, 'artifacts', FIREBASE_APP_ID, 'public', 'data', 'civic_events'),
-      orderBy('date', 'asc')
-    );
+  const { data: events = [], isLoading } = useQuery({
+    queryKey: ['events'],
+    queryFn: async () => {
+      const res = await fetch('/api/events');
+      return res.ok ? res.json() : [];
+    }
+  });
 
-    const unsubscribe = onSnapshot(q, (snapshot) => {
-      const eventsData = snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() } as Event));
-      setEvents(eventsData);
-      setLoading(false);
+  const createEventMutation = useMutation({
+    mutationFn: async (eventData: any) => {
+      const res = await fetch('/api/events', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(eventData)
+      });
+      if (!res.ok) throw new Error('Failed to create event');
+      return res.json();
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ['events'] });
+      setShowCreateDialog(false);
+      setNewEvent({ title: "", description: "", date: "", time: "", location: "", category: "Workshop", maxAttendees: "" });
+      toast({ title: "Success", description: "Event created successfully!" });
+    },
+    onError: () => {
+      toast({ title: "Error", description: "Failed to create event", variant: "destructive" });
+    }
+  });
+
+  const registerMutation = useMutation({
+    mutationFn: async ({ eventId, userId }: { eventId: string; userId: string }) => {
+      const res = await fetch(`/api/events/${eventId}/register`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ userId })
+      });
+      if (!res.ok) throw new Error('Failed to register');
+      return res.json();
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ['events'] });
+      toast({ title: "Registered!", description: "You're registered for this event" });
+    }
+  });
+
+  const handleCreateEvent = () => {
+    if (!user) {
+      toast({ title: "Login Required", description: "Please login to create events." });
+      return;
+    }
+
+    if (!newEvent.title || !newEvent.date || !newEvent.time || !newEvent.location) {
+      toast({ title: "Error", description: "Please fill all required fields", variant: "destructive" });
+      return;
+    }
+
+    createEventMutation.mutate({
+      ...newEvent,
+      organizer: user.displayName || "Anonymous",
+      organizerId: user.uid,
+      maxAttendees: newEvent.maxAttendees ? parseInt(newEvent.maxAttendees) : undefined
     });
+  };
 
-    return () => unsubscribe();
-  }, []);
-
-  const handleRegister = async (event: Event) => {
+  const handleRegister = (event: Event) => {
     if (!user) {
       toast({ title: "Login Required", description: "Please login to register for events." });
       return;
@@ -58,20 +117,11 @@ export default function Events() {
       return;
     }
 
-    try {
-      const eventRef = doc(db, 'artifacts', FIREBASE_APP_ID, 'public', 'data', 'civic_events', event.id);
-      await updateDoc(eventRef, {
-        attendees: increment(1),
-        registeredBy: arrayUnion(user.uid)
-      });
-      toast({ title: "Registered!", description: `You're registered for ${event.title}` });
-    } catch (err) {
-      toast({ title: "Error", description: "Failed to register for event.", variant: "destructive" });
-    }
+    registerMutation.mutate({ eventId: event.id, userId: user.uid });
   };
 
   const filteredEvents = selectedCategory 
-    ? events.filter(e => e.category === selectedCategory)
+    ? events.filter((e: Event) => e.category === selectedCategory)
     : events;
 
   const isUserRegistered = (event: Event) => event.registeredBy?.includes(user?.uid || "");
@@ -83,8 +133,107 @@ export default function Events() {
           <h2 className="text-2xl font-bold tracking-tight">Civic Events & Trainings</h2>
           <p className="text-slate-500">Learn your rights and build community connections.</p>
         </div>
-        <Button>Host Event</Button>
+        <Button onClick={() => setShowCreateDialog(true)} className="bg-primary hover:bg-primary/90">
+          <Plus className="h-4 w-4 mr-2" /> Host Event
+        </Button>
       </div>
+
+      {/* Create Event Dialog */}
+      {showCreateDialog && (
+        <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50 p-4">
+          <Card className="w-full max-w-lg bg-white">
+            <CardContent className="p-6">
+              <div className="flex justify-between items-center mb-6">
+                <h3 className="text-xl font-bold">Create New Event</h3>
+                <button onClick={() => setShowCreateDialog(false)} className="p-2 hover:bg-slate-100 rounded-lg">
+                  <X className="h-5 w-5" />
+                </button>
+              </div>
+
+              <div className="space-y-4">
+                <div>
+                  <label className="block text-sm font-bold mb-1">Event Title *</label>
+                  <Input
+                    value={newEvent.title}
+                    onChange={(e) => setNewEvent({...newEvent, title: e.target.value})}
+                    placeholder="e.g., Know Your Rights Workshop"
+                  />
+                </div>
+
+                <div>
+                  <label className="block text-sm font-bold mb-1">Description</label>
+                  <Textarea
+                    value={newEvent.description}
+                    onChange={(e) => setNewEvent({...newEvent, description: e.target.value})}
+                    placeholder="Describe your event..."
+                    rows={3}
+                  />
+                </div>
+
+                <div className="grid grid-cols-2 gap-4">
+                  <div>
+                    <label className="block text-sm font-bold mb-1">Date *</label>
+                    <Input
+                      type="date"
+                      value={newEvent.date}
+                      onChange={(e) => setNewEvent({...newEvent, date: e.target.value})}
+                    />
+                  </div>
+                  <div>
+                    <label className="block text-sm font-bold mb-1">Time *</label>
+                    <Input
+                      type="time"
+                      value={newEvent.time}
+                      onChange={(e) => setNewEvent({...newEvent, time: e.target.value})}
+                    />
+                  </div>
+                </div>
+
+                <div>
+                  <label className="block text-sm font-bold mb-1">Location *</label>
+                  <Input
+                    value={newEvent.location}
+                    onChange={(e) => setNewEvent({...newEvent, location: e.target.value})}
+                    placeholder="e.g., Lagos Zone 1 Community Hall"
+                  />
+                </div>
+
+                <div className="grid grid-cols-2 gap-4">
+                  <div>
+                    <label className="block text-sm font-bold mb-1">Category</label>
+                    <select
+                      value={newEvent.category}
+                      onChange={(e) => setNewEvent({...newEvent, category: e.target.value})}
+                      className="w-full border rounded-lg p-2 text-sm"
+                    >
+                      {categories.map(cat => (
+                        <option key={cat} value={cat}>{cat}</option>
+                      ))}
+                    </select>
+                  </div>
+                  <div>
+                    <label className="block text-sm font-bold mb-1">Max Attendees</label>
+                    <Input
+                      type="number"
+                      value={newEvent.maxAttendees}
+                      onChange={(e) => setNewEvent({...newEvent, maxAttendees: e.target.value})}
+                      placeholder="Optional"
+                    />
+                  </div>
+                </div>
+
+                <Button 
+                  onClick={handleCreateEvent} 
+                  className="w-full bg-primary hover:bg-primary/90"
+                  disabled={createEventMutation.isPending}
+                >
+                  {createEventMutation.isPending ? 'Creating...' : 'Create Event'}
+                </Button>
+              </div>
+            </CardContent>
+          </Card>
+        </div>
+      )}
 
       {/* Category Filter */}
       <div className="space-y-3">
@@ -118,14 +267,14 @@ export default function Events() {
 
       {/* Events Grid */}
       <div className="grid gap-4">
-        {loading ? (
+        {isLoading ? (
           <div className="text-center py-10 text-slate-400">Loading events...</div>
         ) : filteredEvents.length === 0 ? (
           <div className="text-center py-10 text-slate-400">
-            No events found {selectedCategory && `in "${selectedCategory}"`}. Check back soon!
+            No events found {selectedCategory && `in "${selectedCategory}"`}. Be the first to host one!
           </div>
         ) : (
-          filteredEvents.map((event) => (
+          filteredEvents.map((event: Event) => (
             <Card key={event.id} className="hover:border-primary/50 transition-all hover:shadow-md overflow-hidden">
               <CardContent className="p-6">
                 <div className="flex gap-6 items-start">

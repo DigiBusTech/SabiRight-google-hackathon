@@ -1,6 +1,6 @@
 import type { Express } from "express";
 import { createServer, type Server } from "http";
-import { storage } from "./storage";
+import { dbStorage as storage } from "./dbStorage";
 
 export async function registerRoutes(
   httpServer: Server,
@@ -264,6 +264,160 @@ export async function registerRoutes(
     await storage.deductCredits(userId, 1, 'traffic_refresh', 'Daily traffic alert refresh');
     await storage.updateDashboardTraffic(userId, location, status, description);
 
+    res.json({ success: true });
+  });
+
+  // Events
+  app.get("/api/events", async (req, res) => {
+    const events = await storage.getEvents();
+    res.json(events);
+  });
+
+  app.post("/api/events", async (req, res) => {
+    const { title, description, date, time, location, category, organizer, organizerId, maxAttendees } = req.body;
+    
+    if (!title || !date || !time || !location || !category || !organizer) {
+      return res.status(400).json({ error: 'Missing required fields' });
+    }
+
+    const event = await storage.createEvent({
+      title, description, date, time, location, category, organizer, organizerId, maxAttendees
+    });
+    res.json(event);
+  });
+
+  app.post("/api/events/:eventId/register", async (req, res) => {
+    const { eventId } = req.params;
+    const { userId } = req.body;
+
+    if (!userId) {
+      return res.status(400).json({ error: 'User ID required' });
+    }
+
+    await storage.registerForEvent(eventId, userId);
+    res.json({ success: true });
+  });
+
+  app.delete("/api/events/:eventId", async (req, res) => {
+    const { eventId } = req.params;
+    await storage.deleteEvent(eventId);
+    res.json({ success: true });
+  });
+
+  // Vendor Services
+  app.get("/api/services", async (req, res) => {
+    const services = await storage.getVendorServices();
+    res.json(services);
+  });
+
+  app.post("/api/services", async (req, res) => {
+    const { vendorId, name, type, specialization, description, location, latitude, longitude, contactPhone, contactEmail, priceRange } = req.body;
+    
+    if (!vendorId || !name || !type || !location) {
+      return res.status(400).json({ error: 'Missing required fields' });
+    }
+
+    const service = await storage.createVendorService({
+      vendorId, name, type, specialization, description, location, latitude, longitude, contactPhone, contactEmail, priceRange
+    });
+    res.json(service);
+  });
+
+  app.patch("/api/services/:serviceId", async (req, res) => {
+    const { serviceId } = req.params;
+    await storage.updateVendorService(serviceId, req.body);
+    res.json({ success: true });
+  });
+
+  app.delete("/api/services/:serviceId", async (req, res) => {
+    const { serviceId } = req.params;
+    await storage.deleteVendorService(serviceId);
+    res.json({ success: true });
+  });
+
+  // Admin Settings
+  app.get("/api/admin/settings", async (req, res) => {
+    const { category } = req.query;
+    const settings = await storage.getAdminSettings(category as string | undefined);
+    res.json(settings);
+  });
+
+  app.get("/api/admin/setting/:key", async (req, res) => {
+    const { key } = req.params;
+    const setting = await storage.getAdminSetting(key);
+    res.json(setting || {});
+  });
+
+  app.post("/api/admin/settings", async (req, res) => {
+    const { key, value, category, isSecret } = req.body;
+    
+    if (!key || !category) {
+      return res.status(400).json({ error: 'Key and category required' });
+    }
+
+    await storage.setAdminSetting(key, value, category, isSecret);
+    res.json({ success: true });
+  });
+
+  // Admin User Management
+  app.get("/api/admin/users", async (req, res) => {
+    const users = await storage.getAllUsers();
+    res.json(users);
+  });
+
+  app.get("/api/admin/vendor-applications", async (req, res) => {
+    const applications = await storage.getAllVendorApplications();
+    res.json(applications);
+  });
+
+  app.post("/api/admin/vendor/:userId/approve", async (req, res) => {
+    const { userId } = req.params;
+    await storage.approveVendorApplication(userId);
+    res.json({ success: true });
+  });
+
+  app.post("/api/admin/vendor/:userId/reject", async (req, res) => {
+    const { userId } = req.params;
+    await storage.rejectVendorApplication(userId);
+    res.json({ success: true });
+  });
+
+  // Payments
+  app.get("/api/payments", async (req, res) => {
+    const { userId } = req.query;
+    const payments = await storage.getPayments(userId as string | undefined);
+    res.json(payments);
+  });
+
+  app.post("/api/payments/initiate", async (req, res) => {
+    const { userId, amount, currency, provider, type, description, metadata } = req.body;
+    
+    if (!userId || !amount || !provider || !type) {
+      return res.status(400).json({ error: 'Missing required fields' });
+    }
+
+    const payment = await storage.createPayment({
+      userId, amount, currency: currency || 'NGN', provider, type, description, metadata
+    });
+
+    // Payment initiation logic per provider
+    let redirectUrl = '';
+    if (provider === 'stripe') {
+      redirectUrl = `/payment/stripe?paymentId=${payment.id}`;
+    } else if (provider === 'paystack') {
+      redirectUrl = `/payment/paystack?paymentId=${payment.id}`;
+    } else if (provider === 'flutterwave') {
+      redirectUrl = `/payment/flutterwave?paymentId=${payment.id}`;
+    }
+
+    res.json({ ...payment, redirectUrl });
+  });
+
+  app.post("/api/payments/:paymentId/confirm", async (req, res) => {
+    const { paymentId } = req.params;
+    const { status, providerRef } = req.body;
+
+    await storage.updatePaymentStatus(paymentId, status, providerRef);
     res.json({ success: true });
   });
 

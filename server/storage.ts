@@ -1,4 +1,4 @@
-import { type User, type InsertUser, type Subscription, type Credits, type Plan, type CreditLog, type CloakedRoute, type TrafficAlert, type DashboardTrafficCard, type UserProfile, type VendorApplication } from "@shared/schema";
+import { type User, type InsertUser, type Subscription, type Credits, type Plan, type CreditLog, type CloakedRoute, type TrafficAlert, type DashboardTrafficCard, type UserProfile, type VendorApplication, type Event, type VendorService, type AdminSetting, type Payment } from "@shared/schema";
 import { randomUUID } from "crypto";
 
 export interface IStorage {
@@ -51,6 +51,34 @@ export interface IStorage {
   // Dashboard Traffic
   getDashboardTraffic(userId: string): Promise<DashboardTrafficCard | undefined>;
   updateDashboardTraffic(userId: string, location: string, status: string, description: string): Promise<void>;
+
+  // Events
+  getEvents(): Promise<Event[]>;
+  createEvent(event: any): Promise<Event>;
+  updateEvent(eventId: string, event: any): Promise<void>;
+  deleteEvent(eventId: string): Promise<void>;
+  registerForEvent(eventId: string, userId: string): Promise<void>;
+
+  // Vendor Services
+  getVendorServices(): Promise<VendorService[]>;
+  getVendorServiceById(serviceId: string): Promise<VendorService | undefined>;
+  createVendorService(service: any): Promise<VendorService>;
+  updateVendorService(serviceId: string, service: any): Promise<void>;
+  deleteVendorService(serviceId: string): Promise<void>;
+
+  // Admin Settings
+  getAdminSettings(category?: string): Promise<AdminSetting[]>;
+  getAdminSetting(key: string): Promise<AdminSetting | undefined>;
+  setAdminSetting(key: string, value: string, category: string, isSecret?: boolean): Promise<void>;
+
+  // Payments
+  getPayments(userId?: string): Promise<Payment[]>;
+  createPayment(payment: any): Promise<Payment>;
+  updatePaymentStatus(paymentId: string, status: string, providerRef?: string): Promise<void>;
+
+  // Admin User Management
+  getAllUsers(): Promise<UserProfile[]>;
+  getAllVendorApplications(): Promise<VendorApplication[]>;
 }
 
 export class MemStorage implements IStorage {
@@ -64,6 +92,10 @@ export class MemStorage implements IStorage {
   private userProfiles: Map<string, UserProfile>;
   private vendorApplications: Map<string, VendorApplication>;
   private dashboardTraffic: Map<string, DashboardTrafficCard>;
+  private events: Map<string, Event>;
+  private vendorServices: Map<string, VendorService>;
+  private adminSettings: Map<string, AdminSetting>;
+  private payments: Map<string, Payment>;
 
   constructor() {
     this.users = new Map();
@@ -76,6 +108,24 @@ export class MemStorage implements IStorage {
     this.userProfiles = new Map();
     this.vendorApplications = new Map();
     this.dashboardTraffic = new Map();
+    this.events = new Map();
+    this.vendorServices = new Map();
+    this.adminSettings = new Map();
+    this.payments = new Map();
+    this.initializeDefaultSettings();
+  }
+
+  private initializeDefaultSettings(): void {
+    const defaults = [
+      { key: 'google_maps_api_key', value: 'AIzaSyBrtOCOwXp8UloT0nDqzQDpZpHgtrJUQBs', category: 'api_keys', isSecret: true },
+      { key: 'stripe_enabled', value: 'true', category: 'payments', isSecret: false },
+      { key: 'paystack_enabled', value: 'true', category: 'payments', isSecret: false },
+      { key: 'flutterwave_enabled', value: 'true', category: 'payments', isSecret: false },
+      { key: 'payment_mode', value: 'automatic', category: 'payments', isSecret: false },
+    ];
+    defaults.forEach(s => {
+      this.adminSettings.set(s.key, { id: randomUUID(), ...s, updatedAt: new Date() });
+    });
   }
 
   private initializePlans(): Map<string, Plan> {
@@ -470,6 +520,153 @@ export class MemStorage implements IStorage {
       traffic.lastRefreshedAt = new Date();
     }
     this.dashboardTraffic.set(userId, traffic);
+  }
+
+  // Events
+  async getEvents(): Promise<Event[]> {
+    return Array.from(this.events.values()).sort((a, b) => 
+      new Date(a.date).getTime() - new Date(b.date).getTime()
+    );
+  }
+
+  async createEvent(event: any): Promise<Event> {
+    const id = randomUUID();
+    const newEvent: Event = {
+      ...event,
+      id,
+      attendees: 0,
+      registeredBy: [],
+      createdAt: new Date()
+    };
+    this.events.set(id, newEvent);
+    return newEvent;
+  }
+
+  async updateEvent(eventId: string, event: any): Promise<void> {
+    const existing = this.events.get(eventId);
+    if (existing) {
+      this.events.set(eventId, { ...existing, ...event });
+    }
+  }
+
+  async deleteEvent(eventId: string): Promise<void> {
+    this.events.delete(eventId);
+  }
+
+  async registerForEvent(eventId: string, userId: string): Promise<void> {
+    const event = this.events.get(eventId);
+    if (event) {
+      const registeredBy = event.registeredBy || [];
+      if (!registeredBy.includes(userId)) {
+        event.registeredBy = [...registeredBy, userId];
+        event.attendees = (event.attendees || 0) + 1;
+        this.events.set(eventId, event);
+      }
+    }
+  }
+
+  // Vendor Services
+  async getVendorServices(): Promise<VendorService[]> {
+    return Array.from(this.vendorServices.values()).filter(s => s.isActive);
+  }
+
+  async getVendorServiceById(serviceId: string): Promise<VendorService | undefined> {
+    return this.vendorServices.get(serviceId);
+  }
+
+  async createVendorService(service: any): Promise<VendorService> {
+    const id = randomUUID();
+    const newService: VendorService = {
+      ...service,
+      id,
+      rating: "0",
+      reviewCount: 0,
+      verified: false,
+      isActive: true,
+      createdAt: new Date()
+    };
+    this.vendorServices.set(id, newService);
+    return newService;
+  }
+
+  async updateVendorService(serviceId: string, service: any): Promise<void> {
+    const existing = this.vendorServices.get(serviceId);
+    if (existing) {
+      this.vendorServices.set(serviceId, { ...existing, ...service });
+    }
+  }
+
+  async deleteVendorService(serviceId: string): Promise<void> {
+    const service = this.vendorServices.get(serviceId);
+    if (service) {
+      service.isActive = false;
+      this.vendorServices.set(serviceId, service);
+    }
+  }
+
+  // Admin Settings
+  async getAdminSettings(category?: string): Promise<AdminSetting[]> {
+    const settings = Array.from(this.adminSettings.values());
+    return category ? settings.filter(s => s.category === category) : settings;
+  }
+
+  async getAdminSetting(key: string): Promise<AdminSetting | undefined> {
+    return this.adminSettings.get(key);
+  }
+
+  async setAdminSetting(key: string, value: string, category: string, isSecret: boolean = false): Promise<void> {
+    const existing = this.adminSettings.get(key);
+    if (existing) {
+      existing.value = value;
+      existing.updatedAt = new Date();
+      this.adminSettings.set(key, existing);
+    } else {
+      this.adminSettings.set(key, {
+        id: randomUUID(),
+        key,
+        value,
+        category,
+        isSecret,
+        updatedAt: new Date()
+      });
+    }
+  }
+
+  // Payments
+  async getPayments(userId?: string): Promise<Payment[]> {
+    const payments = Array.from(this.payments.values());
+    return userId ? payments.filter(p => p.userId === userId) : payments;
+  }
+
+  async createPayment(payment: any): Promise<Payment> {
+    const id = randomUUID();
+    const newPayment: Payment = {
+      ...payment,
+      id,
+      status: 'pending',
+      createdAt: new Date()
+    };
+    this.payments.set(id, newPayment);
+    return newPayment;
+  }
+
+  async updatePaymentStatus(paymentId: string, status: string, providerRef?: string): Promise<void> {
+    const payment = this.payments.get(paymentId);
+    if (payment) {
+      payment.status = status;
+      if (providerRef) payment.providerRef = providerRef;
+      if (status === 'completed') payment.completedAt = new Date();
+      this.payments.set(paymentId, payment);
+    }
+  }
+
+  // Admin User Management
+  async getAllUsers(): Promise<UserProfile[]> {
+    return Array.from(this.userProfiles.values());
+  }
+
+  async getAllVendorApplications(): Promise<VendorApplication[]> {
+    return Array.from(this.vendorApplications.values());
   }
 }
 

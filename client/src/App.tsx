@@ -17,6 +17,7 @@ import PlanManagement from "@/pages/app/PlanManagement";
 import TrafficAlerts from "@/pages/app/TrafficAlerts";
 import KYCVerification from "@/pages/app/KYC";
 import VendorDashboard from "@/pages/app/VendorDashboard";
+import AdminDashboard from "@/pages/admin/AdminDashboard";
 import Login from "@/pages/auth/Login";
 
 function Router() {
@@ -56,6 +57,7 @@ function Router() {
       <Route path="/app/vendor">
         <AppLayout><VendorDashboard /></AppLayout>
       </Route>
+      <Route path="/admin" component={AdminDashboard} />
 
       <Route component={NotFound} />
     </Switch>

@@ -116,6 +116,66 @@ export const dashboardTrafficCards = pgTable("dashboard_traffic_cards", {
   lastRefreshedAt: timestamp("last_refreshed_at"),
 });
 
+export const events = pgTable("events", {
+  id: varchar("id").primaryKey().default(sql`gen_random_uuid()`),
+  title: text("title").notNull(),
+  description: text("description"),
+  date: text("date").notNull(),
+  time: text("time").notNull(),
+  location: text("location").notNull(),
+  category: text("category").notNull(),
+  organizer: text("organizer").notNull(),
+  organizerId: varchar("organizer_id").references(() => users.id),
+  attendees: integer("attendees").default(0),
+  maxAttendees: integer("max_attendees"),
+  registeredBy: text("registered_by").array(),
+  createdAt: timestamp("created_at").defaultNow(),
+});
+
+export const vendorServices = pgTable("vendor_services", {
+  id: varchar("id").primaryKey().default(sql`gen_random_uuid()`),
+  vendorId: varchar("vendor_id").notNull().references(() => users.id),
+  name: text("name").notNull(),
+  type: text("type").notNull(),
+  specialization: text("specialization"),
+  description: text("description"),
+  location: text("location").notNull(),
+  latitude: numeric("latitude", { precision: 10, scale: 8 }),
+  longitude: numeric("longitude", { precision: 11, scale: 8 }),
+  rating: numeric("rating", { precision: 3, scale: 2 }).default("0"),
+  reviewCount: integer("review_count").default(0),
+  verified: boolean("verified").default(false),
+  contactPhone: text("contact_phone"),
+  contactEmail: text("contact_email"),
+  priceRange: text("price_range"),
+  isActive: boolean("is_active").default(true),
+  createdAt: timestamp("created_at").defaultNow(),
+});
+
+export const adminSettings = pgTable("admin_settings", {
+  id: varchar("id").primaryKey().default(sql`gen_random_uuid()`),
+  key: text("key").notNull().unique(),
+  value: text("value"),
+  category: text("category").notNull(), // 'api_keys', 'payments', 'general'
+  isSecret: boolean("is_secret").default(false),
+  updatedAt: timestamp("updated_at").defaultNow(),
+});
+
+export const payments = pgTable("payments", {
+  id: varchar("id").primaryKey().default(sql`gen_random_uuid()`),
+  userId: varchar("user_id").notNull().references(() => users.id),
+  amount: numeric("amount", { precision: 10, scale: 2 }).notNull(),
+  currency: text("currency").notNull().default("NGN"),
+  provider: text("provider").notNull(), // 'stripe', 'paystack', 'flutterwave'
+  providerRef: text("provider_ref"),
+  status: text("status").notNull(), // 'pending', 'completed', 'failed', 'refunded'
+  type: text("type").notNull(), // 'subscription', 'credits', 'service'
+  description: text("description"),
+  metadata: jsonb("metadata"),
+  createdAt: timestamp("created_at").defaultNow(),
+  completedAt: timestamp("completed_at"),
+});
+
 // Insert schemas
 export const insertUserSchema = createInsertSchema(users).pick({
   username: true,
@@ -147,3 +207,7 @@ export type VendorApplication = typeof vendorApplications.$inferSelect;
 export type CloakedRoute = typeof cloakedRoutes.$inferSelect;
 export type TrafficAlert = typeof trafficAlerts.$inferSelect;
 export type DashboardTrafficCard = typeof dashboardTrafficCards.$inferSelect;
+export type Event = typeof events.$inferSelect;
+export type VendorService = typeof vendorServices.$inferSelect;
+export type AdminSetting = typeof adminSettings.$inferSelect;
+export type Payment = typeof payments.$inferSelect;

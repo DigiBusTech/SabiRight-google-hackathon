@@ -263,7 +263,7 @@ export default function VendorDashboard() {
                     ? 'bg-yellow-100 text-yellow-800 border-yellow-300'
                     : 'bg-red-100 text-red-800 border-red-300'
                 }`}>
-                  {application.status.toUpperCase()}
+                  {(application.status || 'pending').toUpperCase()}
                 </Badge>
               </div>
               <p className="text-sm text-slate-600 mb-2">{application.serviceType}</p>

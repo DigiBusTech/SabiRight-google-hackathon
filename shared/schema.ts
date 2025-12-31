@@ -477,6 +477,49 @@ export const insertBookingMessageSchema = createInsertSchema(bookingMessages).om
   readAt: true,
 });
 
+export const insertNotificationSchema = createInsertSchema(notifications).omit({
+  id: true,
+  createdAt: true,
+  readAt: true,
+});
+
+export const insertNotificationTemplateSchema = createInsertSchema(notificationTemplates).omit({
+  id: true,
+  createdAt: true,
+  updatedAt: true,
+});
+
+export const insertSmtpSettingsSchema = createInsertSchema(smtpSettings).omit({
+  id: true,
+  updatedAt: true,
+});
+
+export const insertPushSubscriptionSchema = createInsertSchema(pushSubscriptions).omit({
+  id: true,
+  createdAt: true,
+});
+
+export const insertSavedJobSchema = createInsertSchema(savedJobs).omit({
+  id: true,
+  savedAt: true,
+});
+
+export const insertAppliedJobSchema = createInsertSchema(appliedJobs).omit({
+  id: true,
+  appliedAt: true,
+  updatedAt: true,
+});
+
+export const insertGeneratedJobSchema = createInsertSchema(generatedJobs).omit({
+  id: true,
+  createdAt: true,
+});
+
+export const insertSavedEventSchema = createInsertSchema(savedEvents).omit({
+  id: true,
+  savedAt: true,
+});
+
 // Types
 export type InsertUser = z.infer<typeof insertUserSchema>;
 export type InsertCoupon = z.infer<typeof insertCouponSchema>;
@@ -489,6 +532,14 @@ export type InsertEscrowEvent = z.infer<typeof insertEscrowEventSchema>;
 export type InsertContract = z.infer<typeof insertContractSchema>;
 export type InsertDispute = z.infer<typeof insertDisputeSchema>;
 export type InsertBookingMessage = z.infer<typeof insertBookingMessageSchema>;
+export type InsertNotification = z.infer<typeof insertNotificationSchema>;
+export type InsertNotificationTemplate = z.infer<typeof insertNotificationTemplateSchema>;
+export type InsertSmtpSettings = z.infer<typeof insertSmtpSettingsSchema>;
+export type InsertPushSubscription = z.infer<typeof insertPushSubscriptionSchema>;
+export type InsertSavedJob = z.infer<typeof insertSavedJobSchema>;
+export type InsertAppliedJob = z.infer<typeof insertAppliedJobSchema>;
+export type InsertGeneratedJob = z.infer<typeof insertGeneratedJobSchema>;
+export type InsertSavedEvent = z.infer<typeof insertSavedEventSchema>;
 export type User = typeof users.$inferSelect;
 export type UserProfile = typeof userProfiles.$inferSelect;
 export type Plan = typeof plans.$inferSelect;

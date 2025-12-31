@@ -103,8 +103,8 @@ export default function Notifications() {
     
     try {
       const token = await user.getIdToken();
-      const res = await fetch(`/api/notifications/${notificationId}/read`, {
-        method: "PATCH",
+      const res = await fetch(`/api/notifications/${user.uid}/read/${notificationId}`, {
+        method: "POST",
         headers: { 
           Authorization: `Bearer ${token}`,
           "Content-Type": "application/json"
@@ -126,7 +126,7 @@ export default function Notifications() {
     try {
       const token = await user.getIdToken();
       const res = await fetch(`/api/notifications/${user.uid}/read-all`, {
-        method: "PATCH",
+        method: "POST",
         headers: { 
           Authorization: `Bearer ${token}`,
           "Content-Type": "application/json"

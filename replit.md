@@ -86,6 +86,35 @@ Content is personalized based on user's city:
 - 15 major Nigerian cities supported
 - Automatic state derivation from city selection
 
+### Notification System
+
+Multi-channel notification system for user engagement:
+- **In-app notifications**: Bell icon with unread count, notification center page
+- **Email notifications**: SMTP settings manageable by admin
+- **Push notifications**: Web push subscription support
+- **Templates**: Admin-managed templates with variable substitution ({{userName}}, etc.)
+
+Tables: `notifications`, `notificationTemplates`, `smtpSettings`, `pushSubscriptions`
+
+### User Activity Tracking
+
+Track user engagement with jobs and events:
+- **Saved Jobs**: Users can save jobs for later (savedJobs table)
+- **Applied Jobs**: Track job applications with status (appliedJobs table)
+- **AI Generated Jobs**: Personalized job suggestions (generatedJobs table)
+- **Saved Events**: Users can save events of interest (savedEvents table)
+
+Jobs page has tabs: All Jobs, Applied, Saved, AI Generated
+Events page has tabs: All Events, Registered, Saved
+
+### AI Suggestions
+
+AI-powered personalized suggestions popup:
+- Shows on dashboard after 3 seconds (once per session)
+- Analyzes user's city, saved jobs, events, and bookings
+- Uses Gemini API to generate 2-3 actionable suggestions
+- Dismissed suggestions stored in localStorage
+
 ### Authentication
 
 - **Client-side**: Firebase Authentication (Google Firebase)

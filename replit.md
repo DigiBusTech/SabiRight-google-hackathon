@@ -46,11 +46,45 @@ The server follows a modular structure:
 
 Key database tables:
 - `users`: Basic authentication data
-- `userProfiles`: Extended user info including KYC status and vendor mode
+- `userProfiles`: Extended user info including KYC status, vendor mode, city/state
 - `plans`: Subscription plans for users and vendors
 - `subscriptions`: User plan subscriptions with Stripe integration
 - `credits`: Credit balances for feature usage
+- `coupons`: Discount codes for subscriptions
+- `wallets`: User wallet balances for payments
+- `walletTransactions`: Transaction ledger for wallet operations
+- `bookings`: Service bookings between users and vendors
+- `bookingMilestones`: Staged payment milestones for bookings
+- `escrowAccounts`: Escrow accounts holding funds for bookings
+- `escrowEvents`: Audit log for escrow transactions
+- `contracts`: Electronic contracts for bookings
+- `disputes`: Dispute records with admin resolution
+- `bookingMessages`: Chat messages between booking participants
 - Cloaked routes and traffic alerts for privacy features
+
+### Booking & Escrow System
+
+The platform includes a comprehensive booking system for vendor services:
+- **Bookings**: Users book vendor services with optional milestones
+- **Escrow**: Funds held securely until milestone completion
+- **Milestones**: Staged payments released as work progresses
+- **Contracts**: Electronic contracts with dual signatures
+- **Chat**: Real-time messaging between booking participants
+- **Disputes**: Admin arbitration with resolution options (user_favor, vendor_favor, split)
+
+### Wallet System
+
+Users have wallets for platform payments:
+- Top-up via mock payment (ready for real payment provider integration)
+- Escrow funding from wallet balance
+- Automatic fund release/refund on dispute resolution
+
+### City-Based Personalization
+
+Content is personalized based on user's city:
+- Jobs and Events filtered by user's city first
+- 15 major Nigerian cities supported
+- Automatic state derivation from city selection
 
 ### Authentication
 

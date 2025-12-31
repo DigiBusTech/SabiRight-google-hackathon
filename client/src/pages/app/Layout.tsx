@@ -23,7 +23,6 @@ import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar";
 import { useAuth } from "@/context/AuthContext";
 import { auth } from "@/lib/firebase";
 import { signOut } from "firebase/auth";
-import { Switch as UISwitch } from "@/components/ui/badge"; // Mocking a toggle for now or using raw button
 import { Switch } from "@/components/ui/switch";
 import { Label } from "@/components/ui/label";
 

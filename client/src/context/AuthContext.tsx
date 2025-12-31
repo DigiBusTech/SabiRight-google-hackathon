@@ -47,7 +47,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
       body: JSON.stringify({ vendorMode: mode })
     });
     if (res.ok) {
-      setProfile(prev => ({ ...prev, vendorMode: mode }));
+      setProfile((prev: any) => ({ ...prev, vendorMode: mode }));
     }
   };
 

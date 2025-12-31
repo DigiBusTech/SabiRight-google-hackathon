@@ -288,73 +288,83 @@ export default function AdminDashboard() {
   };
 
   return (
-    <div className="min-h-screen bg-slate-50 p-6">
-      <div className="max-w-7xl mx-auto space-y-8">
-        <div className="flex items-center justify-between">
+    <div className="min-h-screen bg-slate-50 p-3 md:p-6 pb-20">
+      <div className="max-w-7xl mx-auto space-y-6">
+        <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3">
           <div>
-            <h1 className="text-3xl font-bold">Admin Dashboard</h1>
-            <p className="text-slate-500">Manage your platform settings and users</p>
+            <h1 className="text-2xl md:text-3xl font-bold">Admin Dashboard</h1>
+            <p className="text-sm md:text-base text-slate-500">Manage your platform settings and users</p>
           </div>
-          <Badge className="bg-red-600 text-white">Admin Access</Badge>
+          <Badge className="bg-red-600 text-white w-fit">Admin Access</Badge>
         </div>
 
         {/* Stats Overview */}
-        <div className="grid md:grid-cols-4 gap-4">
-          <Card>
-            <CardContent className="p-4">
-              <div className="flex items-center gap-3">
-                <Users className="h-8 w-8 text-blue-600" />
+        <div className="grid grid-cols-2 lg:grid-cols-4 gap-3">
+          <Card className="bg-gradient-to-br from-blue-50 to-blue-100/50 border-blue-200">
+            <CardContent className="p-3 md:p-4">
+              <div className="flex items-center gap-2 md:gap-3">
+                <div className="h-10 w-10 rounded-xl bg-blue-100 flex items-center justify-center">
+                  <Users className="h-5 w-5 text-blue-600" />
+                </div>
                 <div>
-                  <p className="text-2xl font-bold">{users.length}</p>
-                  <p className="text-xs text-slate-500">Total Users</p>
+                  <p className="text-xl md:text-2xl font-bold text-blue-700">{users.length}</p>
+                  <p className="text-[10px] md:text-xs text-blue-600/70">Total Users</p>
                 </div>
               </div>
             </CardContent>
           </Card>
-          <Card>
-            <CardContent className="p-4">
-              <div className="flex items-center gap-3">
-                <Store className="h-8 w-8 text-green-600" />
+          <Card className="bg-gradient-to-br from-green-50 to-green-100/50 border-green-200">
+            <CardContent className="p-3 md:p-4">
+              <div className="flex items-center gap-2 md:gap-3">
+                <div className="h-10 w-10 rounded-xl bg-green-100 flex items-center justify-center">
+                  <Store className="h-5 w-5 text-green-600" />
+                </div>
                 <div>
-                  <p className="text-2xl font-bold">{vendorApps.filter((a: any) => a.status === 'approved').length}</p>
-                  <p className="text-xs text-slate-500">Active Vendors</p>
+                  <p className="text-xl md:text-2xl font-bold text-green-700">{vendorApps.filter((a: any) => a.status === 'approved').length}</p>
+                  <p className="text-[10px] md:text-xs text-green-600/70">Active Vendors</p>
                 </div>
               </div>
             </CardContent>
           </Card>
-          <Card>
-            <CardContent className="p-4">
-              <div className="flex items-center gap-3">
-                <Calendar className="h-8 w-8 text-purple-600" />
+          <Card className="bg-gradient-to-br from-purple-50 to-purple-100/50 border-purple-200">
+            <CardContent className="p-3 md:p-4">
+              <div className="flex items-center gap-2 md:gap-3">
+                <div className="h-10 w-10 rounded-xl bg-purple-100 flex items-center justify-center">
+                  <Calendar className="h-5 w-5 text-purple-600" />
+                </div>
                 <div>
-                  <p className="text-2xl font-bold">{events.length}</p>
-                  <p className="text-xs text-slate-500">Events</p>
+                  <p className="text-xl md:text-2xl font-bold text-purple-700">{events.length}</p>
+                  <p className="text-[10px] md:text-xs text-purple-600/70">Events</p>
                 </div>
               </div>
             </CardContent>
           </Card>
-          <Card>
-            <CardContent className="p-4">
-              <div className="flex items-center gap-3">
-                <CreditCard className="h-8 w-8 text-yellow-600" />
+          <Card className="bg-gradient-to-br from-amber-50 to-amber-100/50 border-amber-200">
+            <CardContent className="p-3 md:p-4">
+              <div className="flex items-center gap-2 md:gap-3">
+                <div className="h-10 w-10 rounded-xl bg-amber-100 flex items-center justify-center">
+                  <CreditCard className="h-5 w-5 text-amber-600" />
+                </div>
                 <div>
-                  <p className="text-2xl font-bold">{payments.length}</p>
-                  <p className="text-xs text-slate-500">Transactions</p>
+                  <p className="text-xl md:text-2xl font-bold text-amber-700">{payments.length}</p>
+                  <p className="text-[10px] md:text-xs text-amber-600/70">Transactions</p>
                 </div>
               </div>
             </CardContent>
           </Card>
         </div>
 
-        <Tabs defaultValue="settings" className="space-y-6">
-          <TabsList className="bg-white border flex-wrap">
-            <TabsTrigger value="settings"><Settings className="h-4 w-4 mr-2" /> Settings</TabsTrigger>
-            <TabsTrigger value="api-keys"><Key className="h-4 w-4 mr-2" /> API Keys</TabsTrigger>
-            <TabsTrigger value="plans"><CreditCard className="h-4 w-4 mr-2" /> Plans</TabsTrigger>
-            <TabsTrigger value="payments"><CreditCard className="h-4 w-4 mr-2" /> Payments</TabsTrigger>
-            <TabsTrigger value="users"><Users className="h-4 w-4 mr-2" /> Users</TabsTrigger>
-            <TabsTrigger value="vendors"><Store className="h-4 w-4 mr-2" /> Vendors</TabsTrigger>
-          </TabsList>
+        <Tabs defaultValue="settings" className="space-y-4">
+          <div className="overflow-x-auto -mx-3 px-3 pb-1">
+            <TabsList className="bg-white border inline-flex w-auto min-w-full md:w-full">
+              <TabsTrigger value="settings" className="text-xs md:text-sm whitespace-nowrap"><Settings className="h-3 w-3 md:h-4 md:w-4 mr-1 md:mr-2" /><span className="hidden sm:inline">Settings</span><span className="sm:hidden">Set</span></TabsTrigger>
+              <TabsTrigger value="api-keys" className="text-xs md:text-sm whitespace-nowrap"><Key className="h-3 w-3 md:h-4 md:w-4 mr-1 md:mr-2" /><span className="hidden sm:inline">API Keys</span><span className="sm:hidden">API</span></TabsTrigger>
+              <TabsTrigger value="plans" className="text-xs md:text-sm whitespace-nowrap"><CreditCard className="h-3 w-3 md:h-4 md:w-4 mr-1 md:mr-2" /> Plans</TabsTrigger>
+              <TabsTrigger value="payments" className="text-xs md:text-sm whitespace-nowrap"><CreditCard className="h-3 w-3 md:h-4 md:w-4 mr-1 md:mr-2" /><span className="hidden sm:inline">Payments</span><span className="sm:hidden">Pay</span></TabsTrigger>
+              <TabsTrigger value="users" className="text-xs md:text-sm whitespace-nowrap"><Users className="h-3 w-3 md:h-4 md:w-4 mr-1 md:mr-2" /> Users</TabsTrigger>
+              <TabsTrigger value="vendors" className="text-xs md:text-sm whitespace-nowrap"><Store className="h-3 w-3 md:h-4 md:w-4 mr-1 md:mr-2" /><span className="hidden sm:inline">Vendors</span><span className="sm:hidden">Vend</span></TabsTrigger>
+            </TabsList>
+          </div>
 
           {/* Settings Tab */}
           <TabsContent value="settings">
@@ -643,14 +653,15 @@ export default function AdminDashboard() {
                   <CardTitle>Create New Plan</CardTitle>
                 </CardHeader>
                 <CardContent>
-                  <div className="grid md:grid-cols-3 gap-4">
+                  <div className="grid grid-cols-2 md:grid-cols-3 gap-3">
                     <Input
                       placeholder="Plan Name"
                       value={newPlan.name}
                       onChange={(e) => setNewPlan({ ...newPlan, name: e.target.value })}
+                      className="col-span-2 md:col-span-1"
                     />
                     <select
-                      className="h-10 px-3 border rounded-md"
+                      className="h-10 px-3 border rounded-md text-sm"
                       value={newPlan.type}
                       onChange={(e) => setNewPlan({ ...newPlan, type: e.target.value })}
                     >
@@ -660,7 +671,7 @@ export default function AdminDashboard() {
                       <option value="enterprise">Enterprise</option>
                     </select>
                     <select
-                      className="h-10 px-3 border rounded-md"
+                      className="h-10 px-3 border rounded-md text-sm"
                       value={newPlan.userType}
                       onChange={(e) => setNewPlan({ ...newPlan, userType: e.target.value })}
                     >
@@ -683,6 +694,7 @@ export default function AdminDashboard() {
                       placeholder="Description"
                       value={newPlan.description}
                       onChange={(e) => setNewPlan({ ...newPlan, description: e.target.value })}
+                      className="col-span-2 md:col-span-1"
                     />
                   </div>
                   <Button 
@@ -783,16 +795,16 @@ export default function AdminDashboard() {
                 ) : (
                   <div className="space-y-3">
                     {payments.map((payment: any) => (
-                      <div key={payment.id} className="p-4 border rounded-lg flex items-center justify-between">
+                      <div key={payment.id} className="p-3 md:p-4 border rounded-lg flex flex-col sm:flex-row sm:items-center justify-between gap-2">
                         <div>
-                          <p className="font-bold">{payment.type}</p>
-                          <p className="text-sm text-slate-500">{payment.description}</p>
-                          <p className="text-xs text-slate-400">
+                          <p className="font-bold text-sm">{payment.type}</p>
+                          <p className="text-xs md:text-sm text-slate-500">{payment.description}</p>
+                          <p className="text-[10px] md:text-xs text-slate-400">
                             {new Date(payment.createdAt).toLocaleString()}
                           </p>
                         </div>
-                        <div className="text-right">
-                          <p className="font-bold text-lg">{payment.currency} {payment.amount}</p>
+                        <div className="text-left sm:text-right flex sm:flex-col items-center sm:items-end gap-2 sm:gap-0">
+                          <p className="font-bold text-base md:text-lg">{payment.currency} {payment.amount}</p>
                           <Badge className={
                             payment.status === 'completed' ? 'bg-green-100 text-green-800' :
                             payment.status === 'pending' ? 'bg-yellow-100 text-yellow-800' :
@@ -819,31 +831,34 @@ export default function AdminDashboard() {
                 {users.length === 0 ? (
                   <p className="text-center py-8 text-slate-400">No users registered yet</p>
                 ) : (
-                  <div className="space-y-4">
+                  <div className="space-y-3">
                     {users.map((user: any) => (
-                      <div key={user.userId} className="p-4 border rounded-lg">
-                        <div className="flex items-start justify-between">
+                      <div key={user.userId} className="p-3 md:p-4 border rounded-lg">
+                        <div className="flex flex-col sm:flex-row sm:items-start justify-between gap-2">
                           <div>
-                            <p className="font-bold">{user.displayName || 'Unknown'}</p>
-                            <p className="text-sm text-slate-500">{user.email}</p>
-                            <p className="text-xs text-slate-400">ID: {user.userId}</p>
+                            <p className="font-bold text-sm md:text-base">{user.displayName || 'Unknown'}</p>
+                            <p className="text-xs md:text-sm text-slate-500 truncate max-w-[200px] md:max-w-none">{user.email}</p>
+                            <p className="text-[10px] md:text-xs text-slate-400 truncate max-w-[150px] md:max-w-none">ID: {user.userId}</p>
                           </div>
-                          <div className="flex items-center gap-2">
-                            <Badge className={
+                          <div className="flex items-center gap-2 flex-wrap">
+                            <Badge className={`text-[10px] md:text-xs ${
                               user.kycStatus === 'verified' ? 'bg-green-100 text-green-800' : 
                               user.kycStatus === 'rejected' ? 'bg-red-100 text-red-800' :
                               'bg-yellow-100 text-yellow-800'
-                            }>
+                            }`}>
                               KYC: {user.kycStatus || 'pending'}
                             </Badge>
                             {user.isVendor && (
-                              <Badge className="bg-purple-100 text-purple-800">Vendor</Badge>
+                              <Badge className="bg-purple-100 text-purple-800 text-[10px] md:text-xs">Vendor</Badge>
+                            )}
+                            {user.isAdmin && (
+                              <Badge className="bg-red-100 text-red-800 text-[10px] md:text-xs">Admin</Badge>
                             )}
                           </div>
                         </div>
                         
                         {/* User Actions */}
-                        <div className="mt-4 pt-4 border-t flex flex-wrap gap-2 items-center">
+                        <div className="mt-3 pt-3 border-t flex flex-wrap gap-2 items-center">
                           {/* KYC Actions */}
                           {user.kycStatus === 'pending' && (
                             <>
@@ -955,38 +970,39 @@ export default function AdminDashboard() {
                 ) : (
                   <div className="space-y-3">
                     {vendorApps.map((app: any) => (
-                      <div key={app.id} className="p-4 border rounded-lg">
-                        <div className="flex items-start justify-between">
+                      <div key={app.id} className="p-3 md:p-4 border rounded-lg">
+                        <div className="flex flex-col sm:flex-row sm:items-start justify-between gap-2">
                           <div>
-                            <p className="font-bold">{app.businessName}</p>
-                            <p className="text-sm text-slate-500">{app.serviceType}</p>
-                            <p className="text-xs text-slate-400">
+                            <p className="font-bold text-sm md:text-base">{app.businessName}</p>
+                            <p className="text-xs md:text-sm text-slate-500">{app.serviceType}</p>
+                            <p className="text-[10px] md:text-xs text-slate-400">
                               Applied: {new Date(app.createdAt).toLocaleDateString()}
                             </p>
                           </div>
-                          <div className="flex items-center gap-2">
-                            <Badge className={
+                          <div className="flex items-center gap-2 flex-wrap">
+                            <Badge className={`text-[10px] md:text-xs ${
                               app.status === 'approved' ? 'bg-green-100 text-green-800' :
                               app.status === 'rejected' ? 'bg-red-100 text-red-800' :
                               'bg-yellow-100 text-yellow-800'
-                            }>
+                            }`}>
                               {app.status}
                             </Badge>
                             {app.status === 'pending' && (
                               <>
                                 <Button 
                                   size="sm" 
-                                  className="bg-green-600 hover:bg-green-700"
+                                  className="bg-green-600 hover:bg-green-700 h-7 md:h-8"
                                   onClick={() => approveVendor.mutate(app.userId)}
                                 >
-                                  <CheckCircle2 className="h-4 w-4" />
+                                  <CheckCircle2 className="h-3 w-3 md:h-4 md:w-4" />
                                 </Button>
                                 <Button 
                                   size="sm" 
                                   variant="destructive"
+                                  className="h-7 md:h-8"
                                   onClick={() => rejectVendor.mutate(app.userId)}
                                 >
-                                  <XCircle className="h-4 w-4" />
+                                  <XCircle className="h-3 w-3 md:h-4 md:w-4" />
                                 </Button>
                               </>
                             )}

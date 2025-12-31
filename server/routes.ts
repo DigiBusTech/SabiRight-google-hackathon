@@ -626,6 +626,8 @@ export async function registerRoutes(
     const apiKeySetting = await storage.getAdminSetting('gemini_api_key');
     const apiKey = apiKeySetting?.value || process.env.GEMINI_API_KEY;
     
+    console.log('[AI Generate] API key found:', !!apiKey, 'from setting:', !!apiKeySetting?.value);
+    
     if (!apiKey) {
       return res.status(503).json({ error: 'AI service not configured. Please set up Gemini API key in admin settings.' });
     }
@@ -641,7 +643,9 @@ export async function registerRoutes(
       });
 
       if (!response.ok) {
-        return res.status(response.status).json({ error: 'AI service error' });
+        const errorBody = await response.text();
+        console.error('[AI Generate] Gemini error:', response.status, errorBody);
+        return res.status(response.status).json({ error: 'AI service error', details: errorBody });
       }
 
       const data = await response.json();
@@ -668,6 +672,8 @@ export async function registerRoutes(
 
     const apiKeySetting = await storage.getAdminSetting('gemini_api_key');
     const apiKey = apiKeySetting?.value || process.env.GEMINI_API_KEY;
+    
+    console.log('[AI Jobs] API key found:', !!apiKey, 'from setting:', !!apiKeySetting?.value);
     
     if (!apiKey) {
       return res.status(503).json({ error: 'AI service not configured' });
@@ -701,14 +707,19 @@ export async function registerRoutes(
       });
 
       if (!response.ok) {
-        return res.status(response.status).json({ error: 'AI service error' });
+        const errorBody = await response.text();
+        console.error('[AI Jobs] Gemini error:', response.status, errorBody);
+        return res.status(response.status).json({ error: 'AI service error', details: errorBody });
       }
 
       const data = await response.json();
       const text = data?.candidates?.[0]?.content?.parts?.[0]?.text || '';
       
+      console.log('[AI Jobs] Response received, length:', text.length);
+      
       const jsonMatch = text.match(/\[[\s\S]*\]/);
       if (!jsonMatch) {
+        console.error('[AI Jobs] Failed to parse JSON from response:', text.substring(0, 200));
         return res.status(500).json({ error: 'Failed to parse AI response' });
       }
 
@@ -729,7 +740,7 @@ export async function registerRoutes(
 
       res.json({ jobs: savedJobs, creditsUsed: 1 });
     } catch (err) {
-      console.error('AI job search error:', err);
+      console.error('[AI Jobs] Error:', err);
       res.status(500).json({ error: 'Job search failed' });
     }
   });

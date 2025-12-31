@@ -662,8 +662,10 @@ export class FirestoreStorage implements IStorage {
     if (userId) {
       query = query.where('userId', '==', userId);
     }
-    const snapshot = await query.orderBy('createdAt', 'desc').get();
-    return snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() } as Payment));
+    const snapshot = await query.get();
+    return snapshot.docs
+      .map(doc => ({ id: doc.id, ...doc.data() } as Payment))
+      .sort((a, b) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime());
   }
 
   async createPayment(payment: any): Promise<Payment> {
@@ -702,8 +704,10 @@ export class FirestoreStorage implements IStorage {
   }
 
   async getVendorLeads(vendorId: string): Promise<any[]> {
-    const snapshot = await collections.vendorLeads().where('vendorId', '==', vendorId).orderBy('createdAt', 'desc').get();
-    return snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() }));
+    const snapshot = await collections.vendorLeads().where('vendorId', '==', vendorId).get();
+    return snapshot.docs
+      .map(doc => ({ id: doc.id, ...doc.data() }))
+      .sort((a: any, b: any) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime());
   }
 
   async createVendorLead(lead: any): Promise<any> {
@@ -714,8 +718,10 @@ export class FirestoreStorage implements IStorage {
   }
 
   async getVendorBookings(vendorId: string): Promise<any[]> {
-    const snapshot = await collections.vendorBookings().where('vendorId', '==', vendorId).orderBy('createdAt', 'desc').get();
-    return snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() }));
+    const snapshot = await collections.vendorBookings().where('vendorId', '==', vendorId).get();
+    return snapshot.docs
+      .map(doc => ({ id: doc.id, ...doc.data() }))
+      .sort((a: any, b: any) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime());
   }
 
   async createVendorBooking(booking: any): Promise<any> {
@@ -1481,10 +1487,11 @@ export class FirestoreStorage implements IStorage {
   async getAppliedJobs(userId: string): Promise<any[]> {
     const snapshot = await collections.appliedJobs()
       .where('userId', '==', userId)
-      .orderBy('appliedAt', 'desc')
       .get();
     
-    const applications = snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() }));
+    const applications: any[] = snapshot.docs
+      .map(doc => ({ id: doc.id, ...doc.data() }))
+      .sort((a: any, b: any) => new Date(b.appliedAt).getTime() - new Date(a.appliedAt).getTime());
     const jobs = [];
     
     for (const app of applications) {
@@ -1534,7 +1541,6 @@ export class FirestoreStorage implements IStorage {
   async getGeneratedJobs(userId: string): Promise<any[]> {
     const snapshot = await collections.generatedJobs()
       .where('userId', '==', userId)
-      .orderBy('createdAt', 'desc')
       .get();
     
     return snapshot.docs
@@ -1547,7 +1553,8 @@ export class FirestoreStorage implements IStorage {
           generatedAt: data.createdAt,
           source: 'AI Generated'
         };
-      });
+      })
+      .sort((a, b) => new Date(b.generatedAt).getTime() - new Date(a.generatedAt).getTime());
   }
 
   // ===== Notification Methods =====
@@ -1577,12 +1584,12 @@ export class FirestoreStorage implements IStorage {
   async getNotificationsByUserId(userId: string, limit: number = 50): Promise<Notification[]> {
     const snapshot = await collections.notifications()
       .where('userId', '==', userId)
-      .orderBy('createdAt', 'desc')
-      .limit(limit)
       .get();
     return snapshot.docs
       .filter(doc => !doc.data()._isPlaceholder)
-      .map(doc => ({ id: doc.id, ...doc.data() } as Notification));
+      .map(doc => ({ id: doc.id, ...doc.data() } as Notification))
+      .sort((a, b) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime())
+      .slice(0, limit);
   }
 
   async getNotificationById(notificationId: string): Promise<Notification | undefined> {

@@ -83,13 +83,19 @@ export default function CivicGuard() {
 
       const fullPrompt = `${systemPrompt}\n\nUser Question: ${userText}`;
       
-      const aiText = await runGemini(fullPrompt);
+      const result = await runGemini(fullPrompt);
       
-      if (!aiText) {
+      if (result.error) {
+        setMessages(prev => [...prev, { role: "ai", text: result.error || "An error occurred" }]);
+        return;
+      }
+      
+      if (!result.response) {
         throw new Error("No response from AI");
       }
 
-      setMessages(prev => [...prev, { role: "ai", text: aiText, sources: [] }]);
+      const aiResponse = result.response;
+      setMessages(prev => [...prev, { role: "ai", text: aiResponse, sources: [] }]);
       
       // Deduct credit
       if (user?.uid) {
@@ -106,7 +112,7 @@ export default function CivicGuard() {
       }
     } catch (error) {
       console.error("Gemini Error:", error);
-      setMessages(prev => [...prev, { role: "ai", text: "I'm having trouble connecting to the legal database right now. Please check your internet connection." }]);
+      setMessages(prev => [...prev, { role: "ai", text: "Something went wrong. Please try again." }]);
     } finally {
       setIsTyping(false);
     }

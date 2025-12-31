@@ -948,17 +948,17 @@ export class FirestoreStorage implements IStorage {
   async getBookingsByUserId(userId: string): Promise<Booking[]> {
     const snapshot = await collections.bookings()
       .where('userId', '==', userId)
-      .orderBy('createdAt', 'desc')
       .get();
-    return snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() } as Booking));
+    const bookings = snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() } as Booking));
+    return bookings.sort((a, b) => new Date(b.createdAt as any).getTime() - new Date(a.createdAt as any).getTime());
   }
 
   async getBookingsByVendorId(vendorId: string): Promise<Booking[]> {
     const snapshot = await collections.bookings()
       .where('vendorId', '==', vendorId)
-      .orderBy('createdAt', 'desc')
       .get();
-    return snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() } as Booking));
+    const bookings = snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() } as Booking));
+    return bookings.sort((a, b) => new Date(b.createdAt as any).getTime() - new Date(a.createdAt as any).getTime());
   }
 
   async updateBookingStatus(bookingId: string, status: string): Promise<void> {
@@ -998,9 +998,9 @@ export class FirestoreStorage implements IStorage {
   async getMilestonesByBookingId(bookingId: string): Promise<BookingMilestone[]> {
     const snapshot = await collections.bookingMilestones()
       .where('bookingId', '==', bookingId)
-      .orderBy('order', 'asc')
       .get();
-    return snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() } as BookingMilestone));
+    const milestones = snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() } as BookingMilestone));
+    return milestones.sort((a, b) => (a.order || 0) - (b.order || 0));
   }
 
   async getMilestoneById(milestoneId: string): Promise<BookingMilestone | undefined> {

@@ -31,11 +31,18 @@ export default function Wallet() {
   const queryClient = useQueryClient();
   const [topUpAmount, setTopUpAmount] = useState("");
 
+  const getAuthHeaders = async (): Promise<Record<string, string>> => {
+    if (!user) return {};
+    const token = await user.getIdToken();
+    return { Authorization: `Bearer ${token}` };
+  };
+
   const { data: wallet, isLoading: walletLoading, error: walletError, refetch: refetchWallet } = useQuery<WalletData>({
     queryKey: [`wallet-${user?.uid}`],
     queryFn: async () => {
       if (!user?.uid) throw new Error("Not authenticated");
-      const res = await fetch(`/api/wallet/${user.uid}`);
+      const headers = await getAuthHeaders();
+      const res = await fetch(`/api/wallet/${user.uid}`, { headers });
       if (res.status === 404) {
         throw { status: 404 };
       }
@@ -50,7 +57,8 @@ export default function Wallet() {
     queryKey: [`wallet-transactions-${user?.uid}`],
     queryFn: async () => {
       if (!user?.uid) return [];
-      const res = await fetch(`/api/wallet/${user.uid}/transactions`);
+      const headers = await getAuthHeaders();
+      const res = await fetch(`/api/wallet/${user.uid}/transactions`, { headers });
       if (!res.ok) return [];
       return res.json();
     },
@@ -60,7 +68,8 @@ export default function Wallet() {
   const createWalletMutation = useMutation({
     mutationFn: async () => {
       if (!user?.uid) throw new Error("Not authenticated");
-      const res = await fetch(`/api/wallet/${user.uid}/create`, { method: "POST" });
+      const headers = await getAuthHeaders();
+      const res = await fetch(`/api/wallet/${user.uid}/create`, { method: "POST", headers });
       if (!res.ok) throw new Error("Failed to create wallet");
       return res.json();
     },
@@ -76,9 +85,10 @@ export default function Wallet() {
   const topUpMutation = useMutation({
     mutationFn: async (amount: number) => {
       if (!user?.uid) throw new Error("Not authenticated");
+      const headers = await getAuthHeaders();
       const res = await fetch(`/api/wallet/${user.uid}/topup`, {
         method: "POST",
-        headers: { "Content-Type": "application/json" },
+        headers: { ...headers, "Content-Type": "application/json" },
         body: JSON.stringify({ amount }),
       });
       if (!res.ok) {

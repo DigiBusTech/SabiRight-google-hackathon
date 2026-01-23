@@ -24,7 +24,7 @@ interface Plan {
 export default function PlanManagement() {
   const { user } = useAuth();
   const { toast } = useToast();
-  const [, navigate] = useLocation();
+  const [, setLocation] = useLocation();
   const [userType, setUserType] = useState<'user' | 'vendor'>('user');
   const [currentPlan, setCurrentPlan] = useState<any>(null);
 
@@ -59,14 +59,14 @@ export default function PlanManagement() {
   const handleUpgrade = async (plan: Plan) => {
     if (!user?.uid) {
       toast({ title: "Error", description: "Please log in to subscribe" });
-      navigate('/auth/login');
+      setLocation('/auth/login');
       return;
     }
 
     // Navigate to payment page with plan details
     const amount = parseFloat(plan.price || '0');
     if (amount > 0) {
-      navigate(`/app/payment?type=subscription&planId=${plan.id}&amount=${amount}`);
+      setLocation(`/app/payment?type=subscription&planId=${plan.id}&amount=${amount}`);
     } else {
       // Free plan - subscribe directly
       try {

@@ -21,7 +21,7 @@ interface CreditPlan {
 
 export default function Credits() {
   const { user } = useAuth();
-  const [, navigate] = useLocation();
+  const [, setLocation] = useLocation();
   const { toast } = useToast();
 
   // Fetch available credit packages from admin settings
@@ -91,12 +91,12 @@ export default function Credits() {
         description: "Please log in to purchase credits",
         variant: "destructive"
       });
-      navigate('/auth/login');
+      setLocation('/auth/login');
       return;
     }
 
     // Navigate to payment page with plan details
-    navigate(`/app/payment?type=credit_purchase&planId=${plan.id}&amount=${plan.price}&credits=${plan.credits + (plan.bonus || 0)}`);
+    setLocation(`/app/payment?type=credit_purchase&planId=${plan.id}&amount=${plan.price}&credits=${plan.credits + (plan.bonus || 0)}`);
   };
 
   const formatCurrency = (amount: number) => {

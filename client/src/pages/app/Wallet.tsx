@@ -95,12 +95,12 @@ export default function Wallet() {
     },
   });
 
-  const [, navigate] = useLocation();
+  const [, setLocation] = useLocation();
 
   const topUpMutation = useMutation({
     mutationFn: async (amount: number) => {
       // Navigate to payment page instead of directly initiating
-      navigate(`/app/payment?type=wallet_topup&amount=${amount}`);
+      setLocation(`/app/payment?type=wallet_topup&amount=${amount}`);
       return { success: true };
     },
     onSuccess: () => {

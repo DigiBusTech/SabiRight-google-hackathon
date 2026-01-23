@@ -1,6 +1,7 @@
 import type { Express, Request, Response, NextFunction } from "express";
 import { createServer, type Server } from "http";
 import { firestoreStorage as storage, verifyAdminToken, verifyUserToken } from "./firestoreStorage";
+import PaystackService from "./paystackService";
 
 const adminAuth = async (req: Request, res: Response, next: NextFunction) => {
   const authHeader = req.headers.authorization;
@@ -1180,27 +1181,85 @@ export async function registerRoutes(
   });
 
   app.post("/api/payments/initiate", async (req, res) => {
-    const { userId, amount, currency, provider, type, description, metadata } = req.body;
-    
-    if (!userId || !amount || !provider || !type) {
-      return res.status(400).json({ error: 'Missing required fields' });
+    try {
+      const { userId, amount, currency, provider, type, description, metadata, email } = req.body;
+      
+      if (!userId || !amount || !provider || !type) {
+        return res.status(400).json({ error: 'Missing required fields' });
+      }
+
+      // Create payment record
+      const payment = await storage.createPayment({
+        userId, amount, currency: currency || 'NGN', provider, type, description, metadata
+      });
+
+      // Payment initiation logic per provider
+      let redirectUrl = '';
+      let authorizationUrl = '';
+      let accessCode = '';
+      
+      if (provider === 'paystack') {
+        // Get Paystack settings
+        const paystackPublicKey = await storage.getAdminSetting('paystack_public_key');
+        const paystackSecretKey = await storage.getAdminSetting('paystack_secret_key');
+        
+        if (!paystackSecretKey?.value || !paystackPublicKey?.value) {
+          return res.status(503).json({ error: 'Paystack not configured. Please set up API keys in admin settings.' });
+        }
+
+        // Initialize Paystack service
+        const paystack = new PaystackService({
+          secretKey: paystackSecretKey.value,
+          publicKey: paystackPublicKey.value
+        });
+
+        // Initialize payment with Paystack
+        const paystackResponse = await paystack.initializePayment({
+          email: email || `user-${userId}@sabiright.com`,
+          amount: Math.round(amount * 100), // Convert to kobo
+          reference: payment.metadata?.reference || `PAY-${payment.id}`,
+          currency: currency || 'NGN',
+          callback_url: `${process.env.APP_URL || 'http://localhost:5000'}/api/payments/paystack/callback`,
+          metadata: {
+            paymentId: payment.id,
+            userId,
+            type,
+            ...metadata
+          }
+        });
+
+        if (paystackResponse.status) {
+          authorizationUrl = paystackResponse.data.authorization_url;
+          accessCode = paystackResponse.data.access_code;
+          redirectUrl = authorizationUrl;
+          
+          // Update payment with Paystack reference
+          await storage.updatePayment(payment.id, {
+            providerRef: paystackResponse.data.reference,
+            metadata: {
+              ...payment.metadata,
+              access_code: accessCode
+            }
+          });
+        } else {
+          return res.status(500).json({ error: 'Failed to initialize Paystack payment' });
+        }
+      } else if (provider === 'stripe') {
+        redirectUrl = `/payment/stripe?paymentId=${payment.id}`;
+      } else if (provider === 'flutterwave') {
+        redirectUrl = `/payment/flutterwave?paymentId=${payment.id}`;
+      }
+
+      res.json({ 
+        ...payment, 
+        redirectUrl,
+        authorizationUrl,
+        accessCode
+      });
+    } catch (error: any) {
+      console.error('Payment initiation error:', error);
+      res.status(500).json({ error: error.message || 'Failed to initiate payment' });
     }
-
-    const payment = await storage.createPayment({
-      userId, amount, currency: currency || 'NGN', provider, type, description, metadata
-    });
-
-    // Payment initiation logic per provider
-    let redirectUrl = '';
-    if (provider === 'stripe') {
-      redirectUrl = `/payment/stripe?paymentId=${payment.id}`;
-    } else if (provider === 'paystack') {
-      redirectUrl = `/payment/paystack?paymentId=${payment.id}`;
-    } else if (provider === 'flutterwave') {
-      redirectUrl = `/payment/flutterwave?paymentId=${payment.id}`;
-    }
-
-    res.json({ ...payment, redirectUrl });
   });
 
   app.post("/api/payments/:paymentId/confirm", async (req, res) => {
@@ -1209,6 +1268,162 @@ export async function registerRoutes(
 
     await storage.updatePaymentStatus(paymentId, status, providerRef);
     res.json({ success: true });
+  });
+
+  // Paystack callback (user returns from payment)
+  app.get("/api/payments/paystack/callback", async (req, res) => {
+    try {
+      const { reference, trxref } = req.query;
+      const paymentReference = reference || trxref;
+
+      if (!paymentReference) {
+        return res.redirect(`/app/wallet?payment=failed&error=no_reference`);
+      }
+
+      // Get Paystack settings
+      const paystackPublicKey = await storage.getAdminSetting('paystack_public_key');
+      const paystackSecretKey = await storage.getAdminSetting('paystack_secret_key');
+      
+      if (!paystackSecretKey?.value || !paystackPublicKey?.value) {
+        return res.redirect(`/app/wallet?payment=failed&error=not_configured`);
+      }
+
+      // Initialize Paystack service
+      const paystack = new PaystackService({
+        secretKey: paystackSecretKey.value,
+        publicKey: paystackPublicKey.value
+      });
+
+      // Verify payment
+      const verification = await paystack.verifyPayment(paymentReference as string);
+
+      if (verification.status && verification.data.status === 'success') {
+        const { paymentId, userId, type, credits, planId } = verification.data.metadata;
+
+        // Update payment status
+        await storage.updatePayment(paymentId, {
+          status: 'completed',
+          providerRef: verification.data.reference
+        });
+
+        // Process based on type
+        const amount = verification.data.amount / 100; // Convert from kobo
+        
+        if (type === 'wallet_topup') {
+          await storage.topUpWallet(userId, amount, verification.data.reference, 'Paystack payment');
+        } else if (type === 'credit_purchase' && credits) {
+          const currentCredits = await storage.getUserCredits(userId);
+          await storage.setUserCredits(userId, currentCredits + parseInt(credits));
+        } else if (type === 'subscription' && planId) {
+          await storage.createSubscription(userId, planId);
+        }
+
+        return res.redirect(`/app/wallet?payment=success&reference=${paymentReference}`);
+      } else {
+        return res.redirect(`/app/wallet?payment=failed&reference=${paymentReference}`);
+      }
+    } catch (error: any) {
+      console.error('Paystack callback error:', error);
+      return res.redirect(`/app/wallet?payment=failed&error=${encodeURIComponent(error.message)}`);
+    }
+  });
+
+  // Paystack webhook (Paystack notifies us of payment status)
+  app.post("/api/payments/paystack/webhook", async (req, res) => {
+    try {
+      const signature = req.headers['x-paystack-signature'] as string;
+      
+      if (!signature) {
+        return res.status(400).json({ error: 'No signature provided' });
+      }
+
+      // Get Paystack settings
+      const paystackSecretKey = await storage.getAdminSetting('paystack_secret_key');
+      
+      if (!paystackSecretKey?.value) {
+        return res.status(503).json({ error: 'Paystack not configured' });
+      }
+
+      // Initialize Paystack service
+      const paystack = new PaystackService({
+        secretKey: paystackSecretKey.value,
+        publicKey: '' // Not needed for webhook verification
+      });
+
+      // Verify webhook signature
+      const payload = JSON.stringify(req.body);
+      const isValid = paystack.verifyWebhookSignature(payload, signature);
+
+      if (!isValid) {
+        return res.status(401).json({ error: 'Invalid signature' });
+      }
+
+      const event = req.body;
+
+      // Handle different event types
+      if (event.event === 'charge.success') {
+        const { reference, status, amount, metadata } = event.data;
+        const { paymentId, userId, type, credits, planId } = metadata;
+
+        if (status === 'success') {
+          // Update payment status
+          await storage.updatePayment(paymentId, {
+            status: 'completed',
+            providerRef: reference
+          });
+
+          // Process based on type
+          const amountInNaira = amount / 100; // Convert from kobo
+          
+          if (type === 'wallet_topup') {
+            await storage.topUpWallet(userId, amountInNaira, reference, 'Paystack payment');
+          } else if (type === 'credit_purchase' && credits) {
+            const currentCredits = await storage.getUserCredits(userId);
+            await storage.setUserCredits(userId, currentCredits + parseInt(credits));
+          } else if (type === 'subscription' && planId) {
+            await storage.createSubscription(userId, planId);
+          }
+        }
+      }
+
+      res.json({ success: true });
+    } catch (error: any) {
+      console.error('Paystack webhook error:', error);
+      res.status(500).json({ error: error.message });
+    }
+  });
+
+  // Verify Paystack payment (manual verification from frontend)
+  app.post("/api/payments/paystack/verify", async (req, res) => {
+    try {
+      const { reference } = req.body;
+
+      if (!reference) {
+        return res.status(400).json({ error: 'Reference required' });
+      }
+
+      // Get Paystack settings
+      const paystackPublicKey = await storage.getAdminSetting('paystack_public_key');
+      const paystackSecretKey = await storage.getAdminSetting('paystack_secret_key');
+      
+      if (!paystackSecretKey?.value || !paystackPublicKey?.value) {
+        return res.status(503).json({ error: 'Paystack not configured' });
+      }
+
+      // Initialize Paystack service
+      const paystack = new PaystackService({
+        secretKey: paystackSecretKey.value,
+        publicKey: paystackPublicKey.value
+      });
+
+      // Verify payment
+      const verification = await paystack.verifyPayment(reference);
+
+      res.json(verification);
+    } catch (error: any) {
+      console.error('Paystack verification error:', error);
+      res.status(500).json({ error: error.message || 'Verification failed' });
+    }
   });
 
   // Pay with wallet balance

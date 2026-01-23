@@ -11,6 +11,13 @@ import { useLocation } from "wouter";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { useToast } from "@/hooks/use-toast";
 
+// Declare Paystack popup types
+declare global {
+  interface Window {
+    PaystackPop: any;
+  }
+}
+
 export default function Payment() {
   const { user } = useAuth();
   const [, setLocation] = useLocation();
@@ -34,6 +41,18 @@ export default function Payment() {
 
   const [selectedMethod, setSelectedMethod] = useState<string>('');
   const [useWalletBalance, setUseWalletBalance] = useState(false);
+
+  // Load Paystack inline script
+  useEffect(() => {
+    const script = document.createElement('script');
+    script.src = 'https://js.paystack.co/v1/inline.js';
+    script.async = true;
+    document.body.appendChild(script);
+
+    return () => {
+      document.body.removeChild(script);
+    };
+  }, []);
 
   // Fetch wallet balance
   const { data: wallet } = useQuery({
@@ -213,6 +232,108 @@ export default function Payment() {
       return;
     }
 
+    // Handle Paystack inline payment
+    if (selectedMethod === 'paystack') {
+      if (!window.PaystackPop) {
+        toast({
+          title: "Payment Error",
+          description: "Paystack is not loaded. Please refresh the page.",
+          variant: "destructive"
+        });
+        return;
+      }
+
+      const reference = `${paymentType.toUpperCase()}-${Date.now()}`;
+      const paymentData = {
+        userId: user.uid,
+        amount,
+        currency: 'NGN',
+        provider: 'paystack',
+        type: paymentType,
+        email: user.email || `user-${user.uid}@sabiright.com`,
+        description: paymentType === 'credit_purchase' 
+          ? `Purchase ${credits} credits`
+          : paymentType === 'subscription'
+          ? `Subscription to plan ${planId}`
+          : `Wallet top-up - NGN ${amount}`,
+        metadata: {
+          reference,
+          ...(credits && { credits }),
+          ...(planId && { planId })
+        }
+      };
+
+      // Initiate payment to get Paystack public key
+      initiatePayment.mutate(paymentData, {
+        onSuccess: (data: any) => {
+          // Get public key from settings
+          const publicKey = paymentSettings?.paystack_public_key;
+          
+          if (!publicKey) {
+            toast({
+              title: "Configuration Error",
+              description: "Paystack is not properly configured.",
+              variant: "destructive"
+            });
+            return;
+          }
+
+          // Open Paystack popup
+          const handler = window.PaystackPop.setup({
+            key: publicKey,
+            email: paymentData.email,
+            amount: Math.round(amount * 100), // Convert to kobo
+            currency: 'NGN',
+            ref: reference,
+            metadata: {
+              paymentId: data.id,
+              userId: user.uid,
+              type: paymentType,
+              ...(credits && { credits }),
+              ...(planId && { planId })
+            },
+            onClose: function() {
+              toast({
+                title: "Payment Cancelled",
+                description: "You closed the payment window.",
+              });
+            },
+            callback: function(response: any) {
+              // Payment successful
+              toast({
+                title: "Payment Successful!",
+                description: "Your payment is being verified...",
+              });
+              
+              // Verify payment
+              fetch('/api/payments/paystack/verify', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ reference: response.reference })
+              }).then(res => res.json())
+                .then(data => {
+                  if (data.status && data.data.status === 'success') {
+                    queryClient.invalidateQueries({ queryKey: [`wallet-${user.uid}`] });
+                    queryClient.invalidateQueries({ queryKey: ['pending-payments'] });
+                    navigate('/app/wallet?payment=success');
+                  } else {
+                    navigate('/app/wallet?payment=failed');
+                  }
+                })
+                .catch(err => {
+                  console.error('Verification error:', err);
+                  navigate('/app/wallet?payment=failed');
+                });
+            }
+          });
+
+          handler.openIframe();
+        }
+      });
+      return;
+    }
+
+    // Handle other payment methods
     const paymentData = {
       userId: user.uid,
       amount,

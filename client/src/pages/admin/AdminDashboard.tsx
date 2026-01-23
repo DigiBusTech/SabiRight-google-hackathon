@@ -1159,6 +1159,487 @@ export default function AdminDashboard() {
             </div>
           </TabsContent>
 
+          {/* Credits Management Tab */}
+          <TabsContent value="credits">
+            <div className="space-y-6">
+              {/* Credit Packages */}
+              <Card>
+                <CardHeader>
+                  <div className="flex items-center justify-between">
+                    <CardTitle>Credit Packages</CardTitle>
+                    <Button onClick={() => setShowNewPackageForm(!showNewPackageForm)}>
+                      <Plus className="h-4 w-4 mr-2" />
+                      New Package
+                    </Button>
+                  </div>
+                </CardHeader>
+                <CardContent>
+                  {showNewPackageForm && (
+                    <div className="p-4 border rounded-lg mb-4 bg-slate-50">
+                      <p className="font-bold mb-3">Create Credit Package</p>
+                      <div className="grid md:grid-cols-2 gap-3">
+                        <Input
+                          placeholder="Package Name (e.g., Starter Pack)"
+                          value={newCreditPackage.name}
+                          onChange={(e) => setNewCreditPackage({ ...newCreditPackage, name: e.target.value })}
+                        />
+                        <Input
+                          type="number"
+                          placeholder="Credits"
+                          value={newCreditPackage.credits}
+                          onChange={(e) => setNewCreditPackage({ ...newCreditPackage, credits: parseInt(e.target.value) || 0 })}
+                        />
+                        <Input
+                          type="number"
+                          placeholder="Price (NGN)"
+                          value={newCreditPackage.price}
+                          onChange={(e) => setNewCreditPackage({ ...newCreditPackage, price: parseInt(e.target.value) || 0 })}
+                        />
+                        <Input
+                          type="number"
+                          placeholder="Bonus Credits (optional)"
+                          value={newCreditPackage.bonus}
+                          onChange={(e) => setNewCreditPackage({ ...newCreditPackage, bonus: parseInt(e.target.value) || 0 })}
+                        />
+                        <Input
+                          placeholder="Description"
+                          value={newCreditPackage.description}
+                          onChange={(e) => setNewCreditPackage({ ...newCreditPackage, description: e.target.value })}
+                          className="md:col-span-2"
+                        />
+                        <div className="flex items-center gap-2">
+                          <Checkbox
+                            checked={newCreditPackage.popular}
+                            onCheckedChange={(checked) => setNewCreditPackage({ ...newCreditPackage, popular: checked as boolean })}
+                          />
+                          <Label>Mark as Popular</Label>
+                        </div>
+                      </div>
+                      <div className="flex gap-2 mt-3">
+                        <Button onClick={() => createCreditPackage.mutate(newCreditPackage)}>
+                          Create Package
+                        </Button>
+                        <Button variant="outline" onClick={() => setShowNewPackageForm(false)}>
+                          Cancel
+                        </Button>
+                      </div>
+                    </div>
+                  )}
+
+                  {creditPackages.length === 0 ? (
+                    <p className="text-center py-8 text-slate-400">No credit packages yet</p>
+                  ) : (
+                    <div className="grid md:grid-cols-2 gap-4">
+                      {creditPackages.map((pkg: any) => (
+                        <div key={pkg.id} className="p-4 border rounded-lg">
+                          <div className="flex items-start justify-between mb-2">
+                            <div>
+                              <p className="font-bold">{pkg.name}</p>
+                              {pkg.popular && <Badge className="bg-amber-500 text-white text-xs">Popular</Badge>}
+                            </div>
+                            <div className="flex gap-1">
+                              <Button size="sm" variant="outline" onClick={() => setEditingPackage(pkg)}>
+                                <Edit className="h-3 w-3" />
+                              </Button>
+                              <Button size="sm" variant="destructive" onClick={() => deleteCreditPackage.mutate(pkg.id)}>
+                                <Trash2 className="h-3 w-3" />
+                              </Button>
+                            </div>
+                          </div>
+                          <p className="text-sm text-slate-600">{pkg.description}</p>
+                          <div className="flex items-center gap-2 mt-2">
+                            <Badge variant="outline">{pkg.credits} Credits</Badge>
+                            {pkg.bonus > 0 && <Badge className="bg-green-100 text-green-700">+{pkg.bonus} Bonus</Badge>}
+                            <Badge className="bg-blue-100 text-blue-700">NGN {pkg.price}</Badge>
+                          </div>
+                        </div>
+                      ))}
+                    </div>
+                  )}
+                </CardContent>
+              </Card>
+
+              {/* Credit Costs per Feature */}
+              <Card>
+                <CardHeader>
+                  <CardTitle>Credit Costs per Feature</CardTitle>
+                </CardHeader>
+                <CardContent>
+                  <div className="space-y-3">
+                    <div className="grid md:grid-cols-2 gap-3">
+                      <div>
+                        <Label>AI Legal Query (SabiDoctor)</Label>
+                        <Input
+                          type="number"
+                          value={localSettings['credit_cost_ai_query'] ?? getSetting('credit_cost_ai_query') ?? '1'}
+                          onChange={(e) => handleSettingChange('credit_cost_ai_query', e.target.value)}
+                          placeholder="1"
+                        />
+                      </div>
+                      <div>
+                        <Label>Job Application</Label>
+                        <Input
+                          type="number"
+                          value={localSettings['credit_cost_job_application'] ?? getSetting('credit_cost_job_application') ?? '2'}
+                          onChange={(e) => handleSettingChange('credit_cost_job_application', e.target.value)}
+                          placeholder="2"
+                        />
+                      </div>
+                      <div>
+                        <Label>Marketplace Featured Listing</Label>
+                        <Input
+                          type="number"
+                          value={localSettings['credit_cost_marketplace_feature'] ?? getSetting('credit_cost_marketplace_feature') ?? '5'}
+                          onChange={(e) => handleSettingChange('credit_cost_marketplace_feature', e.target.value)}
+                          placeholder="5"
+                        />
+                      </div>
+                      <div>
+                        <Label>Traffic Alert Post</Label>
+                        <Input
+                          type="number"
+                          value={localSettings['credit_cost_traffic_alert'] ?? getSetting('credit_cost_traffic_alert') ?? '1'}
+                          onChange={(e) => handleSettingChange('credit_cost_traffic_alert', e.target.value)}
+                          placeholder="1"
+                        />
+                      </div>
+                      <div>
+                        <Label>Premium Forum Post</Label>
+                        <Input
+                          type="number"
+                          value={localSettings['credit_cost_premium_post'] ?? getSetting('credit_cost_premium_post') ?? '2'}
+                          onChange={(e) => handleSettingChange('credit_cost_premium_post', e.target.value)}
+                          placeholder="2"
+                        />
+                      </div>
+                      <div>
+                        <Label>Event Creation</Label>
+                        <Input
+                          type="number"
+                          value={localSettings['credit_cost_event_creation'] ?? getSetting('credit_cost_event_creation') ?? '3'}
+                          onChange={(e) => handleSettingChange('credit_cost_event_creation', e.target.value)}
+                          placeholder="3"
+                        />
+                      </div>
+                    </div>
+                    <Button onClick={() => {
+                      handleSaveSetting('credit_cost_ai_query', 'credit_costs', false);
+                      handleSaveSetting('credit_cost_job_application', 'credit_costs', false);
+                      handleSaveSetting('credit_cost_marketplace_feature', 'credit_costs', false);
+                      handleSaveSetting('credit_cost_traffic_alert', 'credit_costs', false);
+                      handleSaveSetting('credit_cost_premium_post', 'credit_costs', false);
+                      handleSaveSetting('credit_cost_event_creation', 'credit_costs', false);
+                    }}>
+                      <Save className="h-4 w-4 mr-2" />
+                      Save Credit Costs
+                    </Button>
+                  </div>
+                </CardContent>
+              </Card>
+
+              {/* Credit Rewards */}
+              <Card>
+                <CardHeader>
+                  <CardTitle>Credit Rewards</CardTitle>
+                </CardHeader>
+                <CardContent>
+                  <div className="space-y-3">
+                    <div className="grid md:grid-cols-2 gap-3">
+                      <div>
+                        <Label>Post Like (to author)</Label>
+                        <Input
+                          type="number"
+                          step="0.1"
+                          value={localSettings['credit_reward_post_like'] ?? getSetting('credit_reward_post_like') ?? '0.1'}
+                          onChange={(e) => handleSettingChange('credit_reward_post_like', e.target.value)}
+                          placeholder="0.1"
+                        />
+                      </div>
+                      <div>
+                        <Label>Post Comment (to author)</Label>
+                        <Input
+                          type="number"
+                          step="0.1"
+                          value={localSettings['credit_reward_post_comment'] ?? getSetting('credit_reward_post_comment') ?? '0.5'}
+                          onChange={(e) => handleSettingChange('credit_reward_post_comment', e.target.value)}
+                          placeholder="0.5"
+                        />
+                      </div>
+                      <div>
+                        <Label>Referral Signup</Label>
+                        <Input
+                          type="number"
+                          value={localSettings['credit_reward_referral'] ?? getSetting('credit_reward_referral') ?? '10'}
+                          onChange={(e) => handleSettingChange('credit_reward_referral', e.target.value)}
+                          placeholder="10"
+                        />
+                      </div>
+                      <div>
+                        <Label>Daily Login Bonus</Label>
+                        <Input
+                          type="number"
+                          value={localSettings['credit_reward_daily_login'] ?? getSetting('credit_reward_daily_login') ?? '1'}
+                          onChange={(e) => handleSettingChange('credit_reward_daily_login', e.target.value)}
+                          placeholder="1"
+                        />
+                      </div>
+                      <div>
+                        <Label>Complete Profile</Label>
+                        <Input
+                          type="number"
+                          value={localSettings['credit_reward_complete_profile'] ?? getSetting('credit_reward_complete_profile') ?? '5'}
+                          onChange={(e) => handleSettingChange('credit_reward_complete_profile', e.target.value)}
+                          placeholder="5"
+                        />
+                      </div>
+                      <div>
+                        <Label>Verify KYC</Label>
+                        <Input
+                          type="number"
+                          value={localSettings['credit_reward_kyc_verification'] ?? getSetting('credit_reward_kyc_verification') ?? '20'}
+                          onChange={(e) => handleSettingChange('credit_reward_kyc_verification', e.target.value)}
+                          placeholder="20"
+                        />
+                      </div>
+                    </div>
+                    <Button onClick={() => {
+                      handleSaveSetting('credit_reward_post_like', 'credit_rewards', false);
+                      handleSaveSetting('credit_reward_post_comment', 'credit_rewards', false);
+                      handleSaveSetting('credit_reward_referral', 'credit_rewards', false);
+                      handleSaveSetting('credit_reward_daily_login', 'credit_rewards', false);
+                      handleSaveSetting('credit_reward_complete_profile', 'credit_rewards', false);
+                      handleSaveSetting('credit_reward_kyc_verification', 'credit_rewards', false);
+                    }}>
+                      <Save className="h-4 w-4 mr-2" />
+                      Save Credit Rewards
+                    </Button>
+                  </div>
+                </CardContent>
+              </Card>
+            </div>
+          </TabsContent>
+
+          {/* Payment Methods Management Tab */}
+          <TabsContent value="payment-methods">
+            <div className="space-y-6">
+              {/* Manual Payment Methods */}
+              <Card>
+                <CardHeader>
+                  <div className="flex items-center justify-between">
+                    <CardTitle>Manual Payment Methods</CardTitle>
+                    <Button onClick={() => setShowNewPaymentMethodForm(!showNewPaymentMethodForm)}>
+                      <Plus className="h-4 w-4 mr-2" />
+                      New Payment Method
+                    </Button>
+                  </div>
+                </CardHeader>
+                <CardContent>
+                  {showNewPaymentMethodForm && (
+                    <div className="p-4 border rounded-lg mb-4 bg-slate-50">
+                      <p className="font-bold mb-3">Create Manual Payment Method</p>
+                      <div className="space-y-3">
+                        <div className="grid md:grid-cols-2 gap-3">
+                          <Input
+                            placeholder="Method Name (e.g., Bank Transfer - GTBank)"
+                            value={newPaymentMethod.name}
+                            onChange={(e) => setNewPaymentMethod({ ...newPaymentMethod, name: e.target.value })}
+                          />
+                          <Input
+                            placeholder="Short Description"
+                            value={newPaymentMethod.description}
+                            onChange={(e) => setNewPaymentMethod({ ...newPaymentMethod, description: e.target.value })}
+                          />
+                        </div>
+                        <Textarea
+                          placeholder="Payment Instructions (e.g., Transfer to Account: 0123456789, Bank: GTBank, Name: SabiRight)"
+                          value={newPaymentMethod.instructions}
+                          onChange={(e) => setNewPaymentMethod({ ...newPaymentMethod, instructions: e.target.value })}
+                          rows={3}
+                        />
+                        
+                        {/* Custom Fields Builder */}
+                        <div className="border-t pt-3 mt-3">
+                          <p className="font-bold mb-2">Custom Fields (for user to fill)</p>
+                          {newPaymentMethod.fields.map((field, index) => (
+                            <div key={index} className="flex gap-2 mb-2 items-center">
+                              <Input
+                                placeholder="Field Name"
+                                value={field.name}
+                                onChange={(e) => {
+                                  const updated = [...newPaymentMethod.fields];
+                                  updated[index].name = e.target.value;
+                                  setNewPaymentMethod({ ...newPaymentMethod, fields: updated });
+                                }}
+                                className="flex-1"
+                              />
+                              <select
+                                className="h-10 px-3 border rounded-md text-sm"
+                                value={field.type}
+                                onChange={(e) => {
+                                  const updated = [...newPaymentMethod.fields];
+                                  updated[index].type = e.target.value as 'text' | 'file';
+                                  setNewPaymentMethod({ ...newPaymentMethod, fields: updated });
+                                }}
+                              >
+                                <option value="text">Text</option>
+                                <option value="file">File Upload</option>
+                              </select>
+                              <Input
+                                placeholder="Placeholder"
+                                value={field.placeholder}
+                                onChange={(e) => {
+                                  const updated = [...newPaymentMethod.fields];
+                                  updated[index].placeholder = e.target.value;
+                                  setNewPaymentMethod({ ...newPaymentMethod, fields: updated });
+                                }}
+                                className="flex-1"
+                              />
+                              <div className="flex items-center gap-1">
+                                <Checkbox
+                                  checked={field.required}
+                                  onCheckedChange={(checked) => {
+                                    const updated = [...newPaymentMethod.fields];
+                                    updated[index].required = checked as boolean;
+                                    setNewPaymentMethod({ ...newPaymentMethod, fields: updated });
+                                  }}
+                                />
+                                <Label className="text-xs">Required</Label>
+                              </div>
+                              <Button
+                                size="sm"
+                                variant="destructive"
+                                onClick={() => {
+                                  const updated = newPaymentMethod.fields.filter((_, i) => i !== index);
+                                  setNewPaymentMethod({ ...newPaymentMethod, fields: updated });
+                                }}
+                              >
+                                <Trash2 className="h-3 w-3" />
+                              </Button>
+                            </div>
+                          ))}
+                          <Button
+                            size="sm"
+                            variant="outline"
+                            onClick={() => {
+                              setNewPaymentMethod({
+                                ...newPaymentMethod,
+                                fields: [...newPaymentMethod.fields, { name: '', type: 'text', required: false, placeholder: '' }]
+                              });
+                            }}
+                          >
+                            <Plus className="h-3 w-3 mr-1" />
+                            Add Field
+                          </Button>
+                        </div>
+
+                        <div className="flex items-center gap-2">
+                          <Checkbox
+                            checked={newPaymentMethod.active}
+                            onCheckedChange={(checked) => setNewPaymentMethod({ ...newPaymentMethod, active: checked as boolean })}
+                          />
+                          <Label>Active (visible to users)</Label>
+                        </div>
+                      </div>
+                      <div className="flex gap-2 mt-3">
+                        <Button onClick={() => createPaymentMethod.mutate(newPaymentMethod)}>
+                          Create Payment Method
+                        </Button>
+                        <Button variant="outline" onClick={() => setShowNewPaymentMethodForm(false)}>
+                          Cancel
+                        </Button>
+                      </div>
+                    </div>
+                  )}
+
+                  {paymentMethods.length === 0 ? (
+                    <p className="text-center py-8 text-slate-400">No payment methods yet</p>
+                  ) : (
+                    <div className="space-y-3">
+                      {paymentMethods.map((method: any) => (
+                        <div key={method.id} className="p-4 border rounded-lg">
+                          <div className="flex items-start justify-between mb-2">
+                            <div className="flex-1">
+                              <div className="flex items-center gap-2 mb-1">
+                                <p className="font-bold">{method.name}</p>
+                                <Badge variant={method.active ? "default" : "secondary"}>
+                                  {method.active ? "Active" : "Inactive"}
+                                </Badge>
+                              </div>
+                              <p className="text-sm text-slate-600">{method.description}</p>
+                              {method.instructions && (
+                                <div className="mt-2 p-2 bg-slate-50 rounded text-xs">
+                                  <p className="font-bold mb-1">Instructions:</p>
+                                  <p className="whitespace-pre-wrap">{method.instructions}</p>
+                                </div>
+                              )}
+                              {method.fields && method.fields.length > 0 && (
+                                <div className="mt-2">
+                                  <p className="text-xs font-bold mb-1">Custom Fields:</p>
+                                  <div className="flex flex-wrap gap-1">
+                                    {method.fields.map((field: any, idx: number) => (
+                                      <Badge key={idx} variant="outline" className="text-xs">
+                                        {field.name} ({field.type}){field.required && ' *'}
+                                      </Badge>
+                                    ))}
+                                  </div>
+                                </div>
+                              )}
+                            </div>
+                            <div className="flex gap-1 ml-2">
+                              <Switch
+                                checked={method.active}
+                                onCheckedChange={(checked) => togglePaymentMethod.mutate({ methodId: method.id, active: checked })}
+                              />
+                              <Button size="sm" variant="destructive" onClick={() => deletePaymentMethod.mutate(method.id)}>
+                                <Trash2 className="h-3 w-3" />
+                              </Button>
+                            </div>
+                          </div>
+                        </div>
+                      ))}
+                    </div>
+                  )}
+                </CardContent>
+              </Card>
+
+              {/* Automatic Payment Gateways (from API Keys tab) */}
+              <Card>
+                <CardHeader>
+                  <CardTitle>Automatic Payment Gateways</CardTitle>
+                </CardHeader>
+                <CardContent>
+                  <p className="text-sm text-slate-600 mb-4">
+                    Configure automatic payment gateways in the <strong>API Keys</strong> tab. 
+                    When enabled, they will automatically appear as payment options for users.
+                  </p>
+                  <div className="grid md:grid-cols-3 gap-3">
+                    <div className="p-3 border rounded-lg">
+                      <p className="font-bold">Paystack</p>
+                      <p className="text-xs text-slate-500">Card, Bank Transfer, USSD</p>
+                      <Badge className="mt-2" variant={getSetting('paystack_enabled') === 'true' ? "default" : "secondary"}>
+                        {getSetting('paystack_enabled') === 'true' ? "Enabled" : "Disabled"}
+                      </Badge>
+                    </div>
+                    <div className="p-3 border rounded-lg">
+                      <p className="font-bold">Stripe</p>
+                      <p className="text-xs text-slate-500">International Cards</p>
+                      <Badge className="mt-2" variant={getSetting('stripe_enabled') === 'true' ? "default" : "secondary"}>
+                        {getSetting('stripe_enabled') === 'true' ? "Enabled" : "Disabled"}
+                      </Badge>
+                    </div>
+                    <div className="p-3 border rounded-lg">
+                      <p className="font-bold">Flutterwave</p>
+                      <p className="text-xs text-slate-500">Card, Bank, Mobile Money</p>
+                      <Badge className="mt-2" variant={getSetting('flutterwave_enabled') === 'true' ? "default" : "secondary"}>
+                        {getSetting('flutterwave_enabled') === 'true' ? "Enabled" : "Disabled"}
+                      </Badge>
+                    </div>
+                  </div>
+                </CardContent>
+              </Card>
+            </div>
+          </TabsContent>
+
           {/* Payments Tab */}
           <TabsContent value="payments">
             <Card>

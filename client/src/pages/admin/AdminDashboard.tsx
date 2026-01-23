@@ -7,7 +7,8 @@ import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { Switch } from "@/components/ui/switch";
 import { 
   Settings, Users, CreditCard, MapPin, Calendar, Briefcase, Store, 
-  Shield, Key, CheckCircle2, XCircle, Eye, EyeOff, Save, Bell, Mail, Trash2, Plus, Edit, Building2, Coins
+  Shield, Key, CheckCircle2, XCircle, Eye, EyeOff, Save, Bell, Mail, Trash2, Plus, Edit, Building2, Coins,
+  BarChart3, Download, FileSpreadsheet, FileText
 } from "lucide-react";
 import { Checkbox } from "@/components/ui/checkbox";
 import { Textarea } from "@/components/ui/textarea";
@@ -690,6 +691,7 @@ export default function AdminDashboard() {
               <TabsTrigger value="users" className="text-xs md:text-sm whitespace-nowrap"><Users className="h-3 w-3 md:h-4 md:w-4 mr-1 md:mr-2" /> Users</TabsTrigger>
               <TabsTrigger value="vendors" className="text-xs md:text-sm whitespace-nowrap"><Store className="h-3 w-3 md:h-4 md:w-4 mr-1 md:mr-2" /><span className="hidden sm:inline">Vendors</span><span className="sm:hidden">Vend</span></TabsTrigger>
               <TabsTrigger value="notifications" className="text-xs md:text-sm whitespace-nowrap" data-testid="tab-notifications"><Bell className="h-3 w-3 md:h-4 md:w-4 mr-1 md:mr-2" /><span className="hidden sm:inline">Notifications</span><span className="sm:hidden">Notif</span></TabsTrigger>
+              <TabsTrigger value="analytics" className="text-xs md:text-sm whitespace-nowrap"><BarChart3 className="h-3 w-3 md:h-4 md:w-4 mr-1 md:mr-2" /><span className="hidden sm:inline">Analytics</span><span className="sm:hidden">Stats</span></TabsTrigger>
             </TabsList>
           </div>
 
@@ -2302,6 +2304,423 @@ export default function AdminDashboard() {
               </Card>
             </div>
           </TabsContent>
+        <TabsContent value="analytics" className="space-y-6">
+          <div>
+            <h3 className="text-lg font-bold">Analytics & Insights</h3>
+            <p className="text-sm text-slate-500">Comprehensive business analytics and data export</p>
+          </div>
+
+          {/* Export Buttons */}
+          <div className="flex gap-2 flex-wrap">
+            <Button
+              onClick={() => {
+                // Export to CSV
+                const analyticsData = {
+                  revenue: {
+                    total: payments?.filter((p: any) => p.status === 'completed').reduce((sum: number, p: any) => sum + p.amount, 0) || 0,
+                    byMethod: {}
+                  },
+                  users: {
+                    total: users?.length || 0,
+                    subscribed: users?.filter((u: any) => u.subscriptionId).length || 0
+                  },
+                  transactions: payments?.length || 0
+                };
+
+                const csvContent = [
+                  ['Metric', 'Value'],
+                  ['Total Revenue', analyticsData.revenue.total],
+                  ['Total Users', analyticsData.users.total],
+                  ['Subscribed Users', analyticsData.users.subscribed],
+                  ['Total Transactions', analyticsData.transactions],
+                  [''],
+                  ['Payment Details'],
+                  ['Date', 'User', 'Amount', 'Type', 'Status', 'Method'],
+                  ...payments?.map((p: any) => [
+                    new Date(p.createdAt).toLocaleDateString(),
+                    p.userId,
+                    p.amount,
+                    p.type,
+                    p.status,
+                    p.paymentMethod || 'N/A'
+                  ]) || []
+                ].map(row => row.join(',')).join('\\n');
+
+                const blob = new Blob([csvContent], { type: 'text/csv' });
+                const url = URL.createObjectURL(blob);
+                const a = document.createElement('a');
+                a.href = url;
+                a.download = `analytics-${new Date().toISOString().split('T')[0]}.csv`;
+                a.click();
+                toast({ title: "Success", description: "CSV exported successfully" });
+              }}
+              variant="outline"
+            >
+              <Download className="h-4 w-4 mr-2" />
+              Export CSV
+            </Button>
+
+            <Button
+              onClick={async () => {
+                // Export to Excel
+                try {
+                  const XLSX = await import('xlsx');
+                  
+                  // Summary sheet
+                  const summaryData = [
+                    ['DigiZen-AI Analytics Report'],
+                    ['Generated:', new Date().toLocaleString()],
+                    [''],
+                    ['Key Metrics'],
+                    ['Total Revenue', payments?.filter((p: any) => p.status === 'completed').reduce((sum: number, p: any) => sum + p.amount, 0) || 0],
+                    ['Total Users', users?.length || 0],
+                    ['Subscribed Users', users?.filter((u: any) => u.subscriptionId).length || 0],
+                    ['Total Transactions', payments?.length || 0],
+                    ['Completed Payments', payments?.filter((p: any) => p.status === 'completed').length || 0],
+                    ['Pending Payments', payments?.filter((p: any) => p.status === 'pending').length || 0],
+                  ];
+
+                  // Payments sheet
+                  const paymentsData = [
+                    ['Date', 'User ID', 'Amount', 'Currency', 'Type', 'Status', 'Method', 'Reference'],
+                    ...payments?.map((p: any) => [
+                      new Date(p.createdAt).toLocaleString(),
+                      p.userId,
+                      p.amount,
+                      p.currency || 'NGN',
+                      p.type,
+                      p.status,
+                      p.paymentMethod || 'N/A',
+                      p.reference || 'N/A'
+                    ]) || []
+                  ];
+
+                  // Users sheet
+                  const usersData = [
+                    ['Email', 'Display Name', 'Subscription', 'Credits', 'Created At'],
+                    ...users?.map((u: any) => [
+                      u.email,
+                      u.displayName || 'N/A',
+                      u.subscriptionId ? 'Yes' : 'No',
+                      u.credits || 0,
+                      new Date(u.createdAt).toLocaleString()
+                    ]) || []
+                  ];
+
+                  const wb = XLSX.utils.book_new();
+                  const wsSummary = XLSX.utils.aoa_to_sheet(summaryData);
+                  const wsPayments = XLSX.utils.aoa_to_sheet(paymentsData);
+                  const wsUsers = XLSX.utils.aoa_to_sheet(usersData);
+
+                  XLSX.utils.book_append_sheet(wb, wsSummary, 'Summary');
+                  XLSX.utils.book_append_sheet(wb, wsPayments, 'Payments');
+                  XLSX.utils.book_append_sheet(wb, wsUsers, 'Users');
+
+                  XLSX.writeFile(wb, `analytics-${new Date().toISOString().split('T')[0]}.xlsx`);
+                  toast({ title: "Success", description: "Excel file exported successfully" });
+                } catch (err) {
+                  toast({ title: "Error", description: "Failed to export Excel", variant: "destructive" });
+                }
+              }}
+              variant="outline"
+            >
+              <FileSpreadsheet className="h-4 w-4 mr-2" />
+              Export Excel
+            </Button>
+
+            <Button
+              onClick={async () => {
+                // Export to PDF
+                try {
+                  const { jsPDF } = await import('jspdf');
+                  const autoTable = (await import('jspdf-autotable')).default;
+
+                  const doc = new jsPDF();
+                  
+                  // Title
+                  doc.setFontSize(20);
+                  doc.text('DigiZen-AI Analytics Report', 14, 20);
+                  doc.setFontSize(10);
+                  doc.text(`Generated: ${new Date().toLocaleString()}`, 14, 28);
+
+                  // Key Metrics
+                  doc.setFontSize(14);
+                  doc.text('Key Metrics', 14, 40);
+                  
+                  const metrics = [
+                    ['Total Revenue', `NGN ${payments?.filter((p: any) => p.status === 'completed').reduce((sum: number, p: any) => sum + p.amount, 0) || 0}`],
+                    ['Total Users', users?.length || 0],
+                    ['Subscribed Users', users?.filter((u: any) => u.subscriptionId).length || 0],
+                    ['Total Transactions', payments?.length || 0],
+                    ['Completed Payments', payments?.filter((p: any) => p.status === 'completed').length || 0],
+                    ['Pending Payments', payments?.filter((p: any) => p.status === 'pending').length || 0],
+                  ];
+
+                  (doc as any).autoTable({
+                    startY: 45,
+                    head: [['Metric', 'Value']],
+                    body: metrics,
+                  });
+
+                  // Payments Table
+                  doc.addPage();
+                  doc.setFontSize(14);
+                  doc.text('Recent Payments', 14, 20);
+
+                  const paymentRows = payments?.slice(0, 50).map((p: any) => [
+                    new Date(p.createdAt).toLocaleDateString(),
+                    p.userId.substring(0, 8),
+                    `${p.amount} ${p.currency || 'NGN'}`,
+                    p.type,
+                    p.status
+                  ]) || [];
+
+                  (doc as any).autoTable({
+                    startY: 25,
+                    head: [['Date', 'User', 'Amount', 'Type', 'Status']],
+                    body: paymentRows,
+                  });
+
+                  doc.save(`analytics-${new Date().toISOString().split('T')[0]}.pdf`);
+                  toast({ title: "Success", description: "PDF exported successfully" });
+                } catch (err) {
+                  toast({ title: "Error", description: "Failed to export PDF", variant: "destructive" });
+                }
+              }}
+              variant="outline"
+            >
+              <FileText className="h-4 w-4 mr-2" />
+              Export PDF
+            </Button>
+
+            <Button
+              onClick={() => {
+                // Export for Power BI (CSV format optimized for Power BI)
+                const powerBIData = payments?.map((p: any) => ({
+                  Date: new Date(p.createdAt).toISOString(),
+                  Year: new Date(p.createdAt).getFullYear(),
+                  Month: new Date(p.createdAt).getMonth() + 1,
+                  Day: new Date(p.createdAt).getDate(),
+                  UserId: p.userId,
+                  Amount: p.amount,
+                  Currency: p.currency || 'NGN',
+                  Type: p.type,
+                  Status: p.status,
+                  PaymentMethod: p.paymentMethod || 'Unknown',
+                  Reference: p.reference || ''
+                })) || [];
+
+                const headers = Object.keys(powerBIData[0] || {});
+                const csvContent = [
+                  headers.join(','),
+                  ...powerBIData.map(row => 
+                    headers.map(header => {
+                      const value = (row as any)[header];
+                      return typeof value === 'string' && value.includes(',') ? `"${value}"` : value;
+                    }).join(',')
+                  )
+                ].join('\\n');
+
+                const blob = new Blob([csvContent], { type: 'text/csv' });
+                const url = URL.createObjectURL(blob);
+                const a = document.createElement('a');
+                a.href = url;
+                a.download = `powerbi-data-${new Date().toISOString().split('T')[0]}.csv`;
+                a.click();
+                toast({ title: "Success", description: "Power BI data exported successfully" });
+              }}
+              variant="outline"
+            >
+              <BarChart3 className="h-4 w-4 mr-2" />
+              Export for Power BI
+            </Button>
+          </div>
+
+          {/* Analytics Cards */}
+          <div className="grid md:grid-cols-4 gap-4">
+            {/* Total Revenue */}
+            <Card>
+              <CardHeader className="pb-3">
+                <CardTitle className="text-sm font-medium text-slate-500">Total Revenue</CardTitle>
+              </CardHeader>
+              <CardContent>
+                <div className="text-2xl font-bold text-green-600">
+                  NGN {payments?.filter((p: any) => p.status === 'completed').reduce((sum: number, p: any) => sum + p.amount, 0).toLocaleString() || 0}
+                </div>
+                <p className="text-xs text-slate-500 mt-1">
+                  {payments?.filter((p: any) => p.status === 'completed').length || 0} completed payments
+                </p>
+              </CardContent>
+            </Card>
+
+            {/* Total Users */}
+            <Card>
+              <CardHeader className="pb-3">
+                <CardTitle className="text-sm font-medium text-slate-500">Total Users</CardTitle>
+              </CardHeader>
+              <CardContent>
+                <div className="text-2xl font-bold text-blue-600">
+                  {users?.length || 0}
+                </div>
+                <p className="text-xs text-slate-500 mt-1">
+                  {users?.filter((u: any) => u.subscriptionId).length || 0} subscribed
+                </p>
+              </CardContent>
+            </Card>
+
+            {/* Pending Payments */}
+            <Card>
+              <CardHeader className="pb-3">
+                <CardTitle className="text-sm font-medium text-slate-500">Pending Payments</CardTitle>
+              </CardHeader>
+              <CardContent>
+                <div className="text-2xl font-bold text-yellow-600">
+                  {payments?.filter((p: any) => p.status === 'pending').length || 0}
+                </div>
+                <p className="text-xs text-slate-500 mt-1">
+                  NGN {payments?.filter((p: any) => p.status === 'pending').reduce((sum: number, p: any) => sum + p.amount, 0).toLocaleString() || 0}
+                </p>
+              </CardContent>
+            </Card>
+
+            {/* Profit Margin */}
+            <Card>
+              <CardHeader className="pb-3">
+                <CardTitle className="text-sm font-medium text-slate-500">Estimated Profit</CardTitle>
+              </CardHeader>
+              <CardContent>
+                <div className="text-2xl font-bold text-purple-600">
+                  NGN {Math.round((payments?.filter((p: any) => p.status === 'completed').reduce((sum: number, p: any) => sum + p.amount, 0) || 0) * 0.7).toLocaleString()}
+                </div>
+                <p className="text-xs text-slate-500 mt-1">
+                  ~70% profit margin
+                </p>
+              </CardContent>
+            </Card>
+          </div>
+
+          {/* Revenue by Payment Method */}
+          <Card>
+            <CardHeader>
+              <CardTitle>Revenue by Payment Method</CardTitle>
+            </CardHeader>
+            <CardContent>
+              <div className="space-y-3">
+                {(() => {
+                  const methodRevenue: Record<string, number> = {};
+                  payments?.filter((p: any) => p.status === 'completed').forEach((p: any) => {
+                    const method = p.paymentMethod || 'Unknown';
+                    methodRevenue[method] = (methodRevenue[method] || 0) + p.amount;
+                  });
+
+                  const totalRevenue = Object.values(methodRevenue).reduce((sum, val) => sum + val, 0);
+
+                  return Object.entries(methodRevenue).map(([method, amount]) => (
+                    <div key={method} className="flex items-center justify-between">
+                      <div className="flex items-center gap-2">
+                        <div className="w-2 h-2 rounded-full bg-blue-600"></div>
+                        <span className="text-sm font-medium capitalize">{method}</span>
+                      </div>
+                      <div className="text-right">
+                        <p className="text-sm font-bold">NGN {amount.toLocaleString()}</p>
+                        <p className="text-xs text-slate-500">
+                          {((amount / totalRevenue) * 100).toFixed(1)}%
+                        </p>
+                      </div>
+                    </div>
+                  ));
+                })()}
+              </div>
+            </CardContent>
+          </Card>
+
+          {/* Revenue Trends */}
+          <Card>
+            <CardHeader>
+              <CardTitle>Revenue Trends (Last 30 Days)</CardTitle>
+            </CardHeader>
+            <CardContent>
+              <div className="space-y-2">
+                {(() => {
+                  const last30Days = Array.from({ length: 30 }, (_, i) => {
+                    const date = new Date();
+                    date.setDate(date.getDate() - (29 - i));
+                    return date.toISOString().split('T')[0];
+                  });
+
+                  const dailyRevenue: Record<string, number> = {};
+                  payments?.filter((p: any) => p.status === 'completed').forEach((p: any) => {
+                    const date = new Date(p.createdAt).toISOString().split('T')[0];
+                    if (last30Days.includes(date)) {
+                      dailyRevenue[date] = (dailyRevenue[date] || 0) + p.amount;
+                    }
+                  });
+
+                  const maxRevenue = Math.max(...Object.values(dailyRevenue), 1);
+
+                  return last30Days.slice(-7).map(date => {
+                    const revenue = dailyRevenue[date] || 0;
+                    const percentage = (revenue / maxRevenue) * 100;
+
+                    return (
+                      <div key={date} className="flex items-center gap-2">
+                        <span className="text-xs text-slate-500 w-20">{new Date(date).toLocaleDateString('en-US', { month: 'short', day: 'numeric' })}</span>
+                        <div className="flex-1 bg-slate-100 rounded-full h-6 relative">
+                          <div 
+                            className="bg-blue-600 h-full rounded-full transition-all"
+                            style={{ width: `${percentage}%` }}
+                          ></div>
+                          <span className="absolute inset-0 flex items-center justify-center text-xs font-medium">
+                            NGN {revenue.toLocaleString()}
+                          </span>
+                        </div>
+                      </div>
+                    );
+                  });
+                })()}
+              </div>
+            </CardContent>
+          </Card>
+
+          {/* Top Users by Spending */}
+          <Card>
+            <CardHeader>
+              <CardTitle>Top Users by Spending</CardTitle>
+            </CardHeader>
+            <CardContent>
+              <div className="space-y-3">
+                {(() => {
+                  const userSpending: Record<string, { total: number; email: string }> = {};
+                  
+                  payments?.filter((p: any) => p.status === 'completed').forEach((p: any) => {
+                    const user = users?.find((u: any) => u.uid === p.userId);
+                    if (user) {
+                      if (!userSpending[p.userId]) {
+                        userSpending[p.userId] = { total: 0, email: user.email };
+                      }
+                      userSpending[p.userId].total += p.amount;
+                    }
+                  });
+
+                  return Object.entries(userSpending)
+                    .sort(([, a], [, b]) => b.total - a.total)
+                    .slice(0, 5)
+                    .map(([userId, data]) => (
+                      <div key={userId} className="flex items-center justify-between p-3 bg-slate-50 rounded-lg">
+                        <div>
+                          <p className="text-sm font-medium">{data.email}</p>
+                          <p className="text-xs text-slate-500">{userId.substring(0, 8)}...</p>
+                        </div>
+                        <div className="text-right">
+                          <p className="text-sm font-bold text-green-600">NGN {data.total.toLocaleString()}</p>
+                        </div>
+                      </div>
+                    ));
+                })()}
+              </div>
+            </CardContent>
+          </Card>
+        </TabsContent>
         </Tabs>
       </div>
     </div>

@@ -32,8 +32,8 @@ export default function Payment() {
   const { toast } = useToast();
   const queryClient = useQueryClient();
 
-  // Parse query parameters
-  const searchParams = new URLSearchParams(location.split('?')[1]);
+  // Parse query parameters from window.location.search (wouter location doesn't include query params)
+  const searchParams = new URLSearchParams(window.location.search);
   const paymentType = searchParams.get('type') || 'wallet_topup';
   const amount = parseFloat(searchParams.get('amount') || '0');
   const credits = parseInt(searchParams.get('credits') || '0');

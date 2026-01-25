@@ -81,45 +81,8 @@ export default function Payment() {
     enabled: !!user?.uid
   });
 
-  // Fetch payment settings from admin (both payments and api_keys)
-  const { data: paymentSettings } = useQuery({
-    queryKey: ['payment-settings'],
-    queryFn: async () => {
-      // Fetch both payments and api_keys categories
-      const [paymentsRes, apiKeysRes] = await Promise.all([
-        fetch('/api/admin/settings?category=payments'),
-        fetch('/api/admin/settings?category=api_keys')
-      ]);
-      
-      const paymentsSettings = paymentsRes.ok ? await paymentsRes.json() : [];
-      const apiKeysSettings = apiKeysRes.ok ? await apiKeysRes.json() : [];
-      
-      // Combine both settings
-      const allSettings = [...paymentsSettings, ...apiKeysSettings];
-      
-      return allSettings.reduce((acc: any, setting: any) => {
-        acc[setting.key] = setting.value;
-        return acc;
-      }, {});
-    }
-  });
-
-  // Fetch bank details from admin settings
-  const { data: bankDetails } = useQuery({
-    queryKey: ['bank-details'],
-    queryFn: async () => {
-      const res = await fetch('/api/admin/settings?category=bank_details');
-      if (!res.ok) return null;
-      const settings = await res.json();
-      return settings.reduce((acc: any, setting: any) => {
-        acc[setting.key] = setting.value;
-        return acc;
-      }, {});
-    }
-  });
-
-  // Fetch active payment methods from admin
-  const { data: paymentMethods = [] } = useQuery({
+  // Fetch all payment methods (both automatic and manual)
+  const { data: allPaymentMethods = [] } = useQuery({
     queryKey: ['payment-methods'],
     queryFn: async () => {
       const res = await fetch('/api/payment-methods');
@@ -128,35 +91,34 @@ export default function Payment() {
     }
   });
 
-  // Parse enabled flags - handle string, boolean, or missing values
-  const parseEnabled = (value: any): boolean => {
-    if (value === true || value === 'true' || value === '1') return true;
-    return false;
-  };
-
-  const stripeEnabled = parseEnabled(paymentSettings?.stripe_enabled);
-  const paystackEnabled = parseEnabled(paymentSettings?.paystack_enabled);
-  const flutterwaveEnabled = parseEnabled(paymentSettings?.flutterwave_enabled);
-
-  // Count total active payment methods
-  const totalActiveMethods = (
-    (stripeEnabled ? 1 : 0) +
-    (paystackEnabled ? 1 : 0) +
-    (flutterwaveEnabled ? 1 : 0) +
-    paymentMethods.length
+  // Separate automatic gateways from manual methods
+  const automaticGateways = allPaymentMethods.filter((m: any) => 
+    ['paystack', 'flutterwave', 'stripe'].includes(m.type)
+  );
+  const manualMethods = allPaymentMethods.filter((m: any) => 
+    m.type === 'manual'
   );
 
-  // Debug: Log payment settings and methods
+  // Get specific gateway configurations
+  const paystackGateway = automaticGateways.find((g: any) => g.type === 'paystack');
+  const flutterwaveGateway = automaticGateways.find((g: any) => g.type === 'flutterwave');
+  const stripeGateway = automaticGateways.find((g: any) => g.type === 'stripe');
+
+  // Count total active payment methods
+  const totalActiveMethods = automaticGateways.length + manualMethods.length;
+
+  // Debug: Log payment methods
   useEffect(() => {
     console.log('=== PAYMENT PAGE DEBUG ===');
-    console.log('Raw Payment Settings:', paymentSettings);
-    console.log('Stripe Enabled:', stripeEnabled, '(raw:', paymentSettings?.stripe_enabled, ')');
-    console.log('Paystack Enabled:', paystackEnabled, '(raw:', paymentSettings?.paystack_enabled, ')');
-    console.log('Flutterwave Enabled:', flutterwaveEnabled, '(raw:', paymentSettings?.flutterwave_enabled, ')');
-    console.log('Manual Payment Methods:', paymentMethods);
+    console.log('All Payment Methods:', allPaymentMethods);
+    console.log('Automatic Gateways:', automaticGateways);
+    console.log('Manual Methods:', manualMethods);
+    console.log('Paystack:', paystackGateway);
+    console.log('Flutterwave:', flutterwaveGateway);
+    console.log('Stripe:', stripeGateway);
     console.log('Total Active Methods:', totalActiveMethods);
     console.log('========================');
-  }, [paymentSettings, paymentMethods, stripeEnabled, paystackEnabled, flutterwaveEnabled, totalActiveMethods]);
+  }, [allPaymentMethods, automaticGateways, manualMethods, totalActiveMethods]);
 
   const walletBalance = wallet ? parseFloat(wallet.balance) : 0;
   const canPayWithWallet = walletBalance >= amount;
@@ -478,8 +440,8 @@ export default function Payment() {
         </CardContent>
       </Card>
 
-      {/* Wallet Balance Option */}
-      {wallet && canPayWithWallet && (
+      {/* Wallet Balance Option - Hidden for wallet top-ups */}
+      {wallet && canPayWithWallet && paymentType !== 'wallet_topup' && (
         <Card className="border-2 border-green-200">
           <CardContent className="pt-6">
             <div className="flex items-start gap-4">
@@ -520,7 +482,7 @@ export default function Payment() {
             <RadioGroup value={selectedMethod} onValueChange={setSelectedMethod}>
               <div className="space-y-3">
                 {/* Automatic Gateways */}
-                {paystackEnabled && (
+                {paystackGateway && (
                   <label className="flex items-center gap-3 p-4 border rounded-lg cursor-pointer hover:bg-slate-50">
                     <RadioGroupItem value="paystack" />
                     <CreditCard className="h-5 w-5 text-blue-600" />
@@ -532,7 +494,7 @@ export default function Payment() {
                   </label>
                 )}
 
-                {stripeEnabled && (
+                {stripeGateway && (
                   <label className="flex items-center gap-3 p-4 border rounded-lg cursor-pointer hover:bg-slate-50">
                     <RadioGroupItem value="stripe" />
                     <CreditCard className="h-5 w-5 text-purple-600" />
@@ -544,7 +506,7 @@ export default function Payment() {
                   </label>
                 )}
 
-                {flutterwaveEnabled && (
+                {flutterwaveGateway && (
                   <label className="flex items-center gap-3 p-4 border rounded-lg cursor-pointer hover:bg-slate-50">
                     <RadioGroupItem value="flutterwave" />
                     <CreditCard className="h-5 w-5 text-orange-600" />
@@ -557,7 +519,7 @@ export default function Payment() {
                 )}
 
                 {/* Dynamic Manual Payment Methods from Admin */}
-                {paymentMethods.map((method: any) => (
+                {manualMethods.map((method: any) => (
                   <label key={method.id} className="flex items-center gap-3 p-4 border rounded-lg cursor-pointer hover:bg-slate-50">
                     <RadioGroupItem value={method.id} />
                     <Building2 className="h-5 w-5 text-green-600" />
@@ -586,10 +548,10 @@ export default function Payment() {
             </RadioGroup>
 
             {/* Dynamic Payment Method Instructions and Custom Fields */}
-            {selectedMethod && paymentMethods.find((m: any) => m.id === selectedMethod) && (
+            {selectedMethod && manualMethods.find((m: any) => m.id === selectedMethod) && (
               <div className="mt-4 p-4 bg-blue-50 rounded-lg border border-blue-200">
                 {(() => {
-                  const method = paymentMethods.find((m: any) => m.id === selectedMethod);
+                  const method = manualMethods.find((m: any) => m.id === selectedMethod);
                   return (
                     <>
                       <p className="font-bold text-sm mb-2">📋 Payment Instructions:</p>
@@ -626,21 +588,7 @@ export default function Payment() {
               </div>
             )}
 
-            {/* Legacy Bank Transfer Instructions (for backward compatibility) */}
-            {selectedMethod === 'bank_transfer' && bankDetails && (
-              <div className="mt-4 p-4 bg-blue-50 rounded-lg border border-blue-200">
-                <p className="font-bold text-sm mb-2">📋 Bank Transfer Instructions:</p>
-                <div className="space-y-1 text-sm">
-                  <p><strong>Bank:</strong> {bankDetails.bank_name || 'GTBank'}</p>
-                  <p><strong>Account Number:</strong> {bankDetails.account_number || '0123456789'}</p>
-                  <p><strong>Account Name:</strong> {bankDetails.account_name || 'SabiRight Technologies'}</p>
-                  <p><strong>Amount:</strong> {formatCurrency(amount)}</p>
-                </div>
-                <p className="text-xs text-blue-700 mt-3">
-                  ⏳ Your payment will be verified and credited within 1-24 hours after transfer.
-                </p>
-              </div>
-            )}
+
           </CardContent>
         </Card>
       )}

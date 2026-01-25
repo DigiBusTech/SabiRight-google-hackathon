@@ -11,10 +11,11 @@ import { useLocation } from "wouter";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { useToast } from "@/hooks/use-toast";
 
-// Declare Paystack popup types
+// Declare Paystack and Flutterwave popup types
 declare global {
   interface Window {
     PaystackPop: any;
+    FlutterwaveCheckout: any;
   }
 }
 
@@ -54,15 +55,25 @@ export default function Payment() {
     });
   }, [paymentType, amount, credits, planId]);
 
-  // Load Paystack inline script
+  // Load Paystack and Flutterwave inline scripts
   useEffect(() => {
-    const script = document.createElement('script');
-    script.src = 'https://js.paystack.co/v1/inline.js';
-    script.async = true;
-    document.body.appendChild(script);
+    const paystackScript = document.createElement('script');
+    paystackScript.src = 'https://js.paystack.co/v1/inline.js';
+    paystackScript.async = true;
+    document.body.appendChild(paystackScript);
+
+    const flutterwaveScript = document.createElement('script');
+    flutterwaveScript.src = 'https://checkout.flutterwave.com/v3.js';
+    flutterwaveScript.async = true;
+    document.body.appendChild(flutterwaveScript);
 
     return () => {
-      document.body.removeChild(script);
+      if (document.body.contains(paystackScript)) {
+        document.body.removeChild(paystackScript);
+      }
+      if (document.body.contains(flutterwaveScript)) {
+        document.body.removeChild(flutterwaveScript);
+      }
     };
   }, []);
 
@@ -341,7 +352,126 @@ export default function Payment() {
       return;
     }
 
-    // Handle other payment methods
+    // Handle Flutterwave inline payment
+    if (selectedMethod === 'flutterwave') {
+      if (!window.FlutterwaveCheckout) {
+        toast({
+          title: "Payment Error",
+          description: "Flutterwave is not loaded. Please refresh the page.",
+          variant: "destructive"
+        });
+        return;
+      }
+
+      const reference = `FLW-${paymentType.toUpperCase()}-${Date.now()}`;
+      const paymentData = {
+        userId: user.uid,
+        amount,
+        currency: 'NGN',
+        provider: 'flutterwave',
+        type: paymentType,
+        email: user.email || `user-${user.uid}@sabiright.com`,
+        description: paymentType === 'credit_purchase' 
+          ? `Purchase ${credits} credits`
+          : paymentType === 'subscription'
+          ? `Subscription to plan ${planId}`
+          : `Wallet top-up - NGN ${amount}`,
+        metadata: {
+          reference,
+          ...(credits && { credits }),
+          ...(planId && { planId })
+        }
+      };
+
+      // Initiate payment to create payment record
+      initiatePayment.mutate(paymentData, {
+        onSuccess: (data: any) => {
+          // Get public key from flutterwaveGateway
+          const publicKey = flutterwaveGateway?.publicKey;
+          
+          if (!publicKey) {
+            toast({
+              title: "Configuration Error",
+              description: "Flutterwave is not properly configured.",
+              variant: "destructive"
+            });
+            return;
+          }
+
+          // Open Flutterwave modal
+          window.FlutterwaveCheckout({
+            public_key: publicKey,
+            tx_ref: reference,
+            amount: amount,
+            currency: 'NGN',
+            payment_options: 'card,banktransfer,ussd,mobilemoney',
+            customer: {
+              email: paymentData.email,
+              name: user.displayName || 'SabiRight User',
+            },
+            customizations: {
+              title: 'SabiRight Payment',
+              description: paymentData.description,
+              logo: 'https://sabiright.com/logo.png',
+            },
+            meta: {
+              paymentId: data.id,
+              userId: user.uid,
+              type: paymentType,
+              ...(credits && { credits }),
+              ...(planId && { planId })
+            },
+            callback: function(response: any) {
+              console.log('Flutterwave callback:', response);
+              if (response.status === 'successful' || response.status === 'completed') {
+                toast({
+                  title: "Payment Successful!",
+                  description: "Your payment is being verified...",
+                });
+                
+                // Verify payment
+                fetch('/api/payments/flutterwave/verify', {
+                  method: 'POST',
+                  headers: { 'Content-Type': 'application/json' },
+                  body: JSON.stringify({ 
+                    transaction_id: response.transaction_id,
+                    tx_ref: response.tx_ref 
+                  })
+                }).then(res => res.json())
+                  .then(data => {
+                    if (data.status === 'success') {
+                      queryClient.invalidateQueries({ queryKey: [`wallet-${user.uid}`] });
+                      queryClient.invalidateQueries({ queryKey: ['pending-payments'] });
+                      navigate('/app/wallet?payment=success');
+                    } else {
+                      navigate('/app/wallet?payment=failed');
+                    }
+                  })
+                  .catch(err => {
+                    console.error('Verification error:', err);
+                    navigate('/app/wallet?payment=failed');
+                  });
+              } else {
+                toast({
+                  title: "Payment Failed",
+                  description: "Your payment was not successful.",
+                  variant: "destructive"
+                });
+              }
+            },
+            onclose: function() {
+              toast({
+                title: "Payment Cancelled",
+                description: "You closed the payment window.",
+              });
+            }
+          });
+        }
+      });
+      return;
+    }
+
+    // Handle other payment methods (manual methods)
     const paymentData = {
       userId: user.uid,
       amount,

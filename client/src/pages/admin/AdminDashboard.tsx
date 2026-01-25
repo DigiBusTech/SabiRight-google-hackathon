@@ -1718,6 +1718,29 @@ export default function AdminDashboard() {
                           queryClient.invalidateQueries({ queryKey: ['admin-payment-methods'] });
                         }}
                       />
+                      <Input
+                        type="password"
+                        placeholder="Webhook Hash (for webhook verification)"
+                        defaultValue={paymentMethods.find((m: any) => m.type === 'flutterwave')?.webhookHash || ''}
+                        onBlur={async (e) => {
+                          const method = paymentMethods.find((m: any) => m.type === 'flutterwave');
+                          const headers = await getAdminHeaders();
+                          if (method) {
+                            await fetch(`/api/admin/payment-methods/${method.id}`, {
+                              method: 'PUT',
+                              headers: { ...headers, 'Content-Type': 'application/json' },
+                              body: JSON.stringify({ webhookHash: e.target.value })
+                            });
+                          }
+                          queryClient.invalidateQueries({ queryKey: ['admin-payment-methods'] });
+                        }}
+                      />
+                      <p className="text-xs text-slate-500 mt-2">
+                        💡 <strong>Webhook URL:</strong> Configure this in your Flutterwave dashboard:<br/>
+                        <code className="bg-slate-100 px-2 py-1 rounded text-xs">
+                          https://your-domain.com/api/payments/flutterwave/webhook
+                        </code>
+                      </p>
                     </div>
                   </div>
 

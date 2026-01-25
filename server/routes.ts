@@ -1434,14 +1434,23 @@ export async function registerRoutes(
       const paymentMethods = await storage.getPaymentMethods();
       const flutterwaveMethod = paymentMethods.find((m: any) => m.type === 'flutterwave' && m.active);
       
-      if (!flutterwaveMethod?.secretKey) {
-        return res.status(503).json({ error: 'Flutterwave not configured' });
+      if (!flutterwaveMethod?.webhookHash) {
+        console.error('Flutterwave webhook hash not configured');
+        return res.status(503).json({ error: 'Flutterwave webhook not configured' });
       }
 
       // Verify webhook signature
-      if (secretHash !== flutterwaveMethod.secretKey) {
-        return res.status(401).json({ error: 'Invalid signature' });
+      if (!secretHash) {
+        console.error('Missing verif-hash header');
+        return res.status(401).json({ error: 'Missing webhook signature' });
       }
+
+      if (secretHash !== flutterwaveMethod.webhookHash) {
+        console.error('Invalid webhook signature:', { received: secretHash, expected: flutterwaveMethod.webhookHash });
+        return res.status(401).json({ error: 'Invalid webhook signature' });
+      }
+
+      console.log('Flutterwave webhook signature verified successfully');
 
       const event = req.body;
 
@@ -1455,22 +1464,51 @@ export async function registerRoutes(
           const payments = await storage.getPayments();
           const payment = payments.find((p: any) => p.metadata?.reference === tx_ref);
 
-          if (payment) {
-            // Update payment status
-            await storage.updatePayment(payment.id, {
-              status: 'completed',
-              providerRef: tx_ref
-            });
+          if (!payment) {
+            console.error('Payment not found for reference:', tx_ref);
+            return res.status(404).json({ error: 'Payment not found' });
+          }
 
-            // Process based on type
-            if (type === 'wallet_topup') {
-              await storage.topUpWallet(userId, amount, tx_ref, 'Flutterwave payment');
-            } else if (type === 'credit_purchase' && credits) {
-              const currentCredits = await storage.getUserCredits(userId);
-              await storage.setUserCredits(userId, currentCredits + parseInt(credits));
-            } else if (type === 'subscription' && planId) {
-              await storage.createSubscription(userId, planId);
-            }
+          // Idempotency check - prevent duplicate processing
+          if (payment.status === 'completed') {
+            console.log('Payment already processed:', payment.id);
+            return res.json({ success: true, message: 'Payment already processed' });
+          }
+
+          // Amount verification - ensure paid amount matches expected amount
+          if (payment.amount !== amount) {
+            console.error('Amount mismatch:', { 
+              paymentId: payment.id,
+              expected: payment.amount, 
+              received: amount 
+            });
+            return res.status(400).json({ error: 'Amount mismatch' });
+          }
+
+          console.log('Processing payment:', {
+            paymentId: payment.id,
+            userId,
+            amount,
+            type
+          });
+
+          // Update payment status
+          await storage.updatePayment(payment.id, {
+            status: 'completed',
+            providerRef: tx_ref
+          });
+
+          // Process based on type
+          if (type === 'wallet_topup') {
+            await storage.topUpWallet(userId, amount, tx_ref, 'Flutterwave payment');
+            console.log('Wallet topped up:', { userId, amount });
+          } else if (type === 'credit_purchase' && credits) {
+            const currentCredits = await storage.getUserCredits(userId);
+            await storage.setUserCredits(userId, currentCredits + parseInt(credits));
+            console.log('Credits added:', { userId, credits });
+          } else if (type === 'subscription' && planId) {
+            await storage.createSubscription(userId, planId);
+            console.log('Subscription created:', { userId, planId });
           }
         }
       }
@@ -1522,22 +1560,52 @@ export async function registerRoutes(
           const payments = await storage.getPayments();
           const payment = payments.find((p: any) => p.metadata?.reference === tx_ref);
 
-          if (payment && payment.status !== 'completed') {
-            // Update payment status
-            await storage.updatePayment(payment.id, {
-              status: 'completed',
-              providerRef: tx_ref
-            });
+          if (!payment) {
+            console.error('Payment not found for reference:', tx_ref);
+            return res.status(404).json({ error: 'Payment not found' });
+          }
 
-            // Process based on type
-            if (type === 'wallet_topup') {
-              await storage.topUpWallet(userId, amount, tx_ref, 'Flutterwave payment');
-            } else if (type === 'credit_purchase' && credits) {
-              const currentCredits = await storage.getUserCredits(userId);
-              await storage.setUserCredits(userId, currentCredits + parseInt(credits));
-            } else if (type === 'subscription' && planId) {
-              await storage.createSubscription(userId, planId);
-            }
+          // Idempotency check
+          if (payment.status === 'completed') {
+            console.log('Payment already verified and processed:', payment.id);
+            return res.json({ status: 'success', message: 'Payment already processed', data: data.data });
+          }
+
+          // Amount verification
+          if (payment.amount !== amount) {
+            console.error('Amount mismatch during verification:', { 
+              paymentId: payment.id,
+              expected: payment.amount, 
+              received: amount 
+            });
+            return res.status(400).json({ error: 'Amount mismatch' });
+          }
+
+          console.log('Verifying and processing payment:', {
+            paymentId: payment.id,
+            userId,
+            amount,
+            type,
+            tx_ref
+          });
+
+          // Update payment status
+          await storage.updatePayment(payment.id, {
+            status: 'completed',
+            providerRef: tx_ref
+          });
+
+          // Process based on type
+          if (type === 'wallet_topup') {
+            await storage.topUpWallet(userId, amount, tx_ref, 'Flutterwave payment');
+            console.log('Wallet topped up via verification:', { userId, amount });
+          } else if (type === 'credit_purchase' && credits) {
+            const currentCredits = await storage.getUserCredits(userId);
+            await storage.setUserCredits(userId, currentCredits + parseInt(credits));
+            console.log('Credits added via verification:', { userId, credits });
+          } else if (type === 'subscription' && planId) {
+            await storage.createSubscription(userId, planId);
+            console.log('Subscription created via verification:', { userId, planId });
           }
         }
 

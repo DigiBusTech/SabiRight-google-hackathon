@@ -156,20 +156,8 @@ export default function Payment() {
 
       return res.json();
     },
-    onSuccess: (data) => {
-      if (data.redirectUrl) {
-        // Redirect to payment gateway
-        window.location.href = data.redirectUrl;
-      } else {
-        // Manual payment - show success and instructions
-        toast({
-          title: "Payment Initiated",
-          description: "Please complete the bank transfer and wait for admin approval.",
-          duration: 5000
-        });
-        navigate('/app/wallet');
-      }
-    },
+    // Note: onSuccess handlers are defined per payment method (Paystack, Flutterwave, Manual)
+    // No global onSuccess to avoid conflicts with inline checkout handlers
     onError: (error: Error) => {
       toast({
         title: "Payment Failed",
@@ -490,7 +478,17 @@ export default function Payment() {
       }
     };
 
-    initiatePayment.mutate(paymentData);
+    // For manual payment methods, show success message after initiation
+    initiatePayment.mutate(paymentData, {
+      onSuccess: () => {
+        toast({
+          title: "Payment Initiated",
+          description: "Please complete the payment and wait for admin approval.",
+          duration: 5000
+        });
+        navigate('/app/wallet');
+      }
+    });
   };
 
   const formatCurrency = (value: number) => {

@@ -1246,9 +1246,8 @@ export async function registerRoutes(
         }
       } else if (provider === 'stripe') {
         redirectUrl = `/payment/stripe?paymentId=${payment.id}`;
-      } else if (provider === 'flutterwave') {
-        redirectUrl = `/payment/flutterwave?paymentId=${payment.id}`;
       }
+      // Flutterwave uses inline checkout, no redirect needed
 
       res.json({ 
         ...payment, 

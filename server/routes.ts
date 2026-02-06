@@ -2136,7 +2136,7 @@ export async function registerRoutes(
       // Combine and limit context size to avoid token limits
       const moatContext = [...constitutionData, ...police_actData, ...forumMoat, ...marketplaceMoat, ...eventsMoat, ...jobsMoat, ...locationMoat]
         .slice(0, 50) // Limit to top 50 most recent relevant items
-        .map(d => `Title: ${d.title}\nContent: ${d.content}\nSource: ${d.source || 'Unknown'}`)
+        .map(d => `Title: ${d.title || 'Untitled'}\nContent: ${d.content}\nSource: ${d.source || 'Unknown'}`)
         .join('\n\n');
 
       const systemPrompt = isUrgent

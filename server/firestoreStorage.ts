@@ -1,7 +1,7 @@
 import admin from 'firebase-admin';
 import fs from 'fs';
 import path from 'path';
-import { type User, type InsertUser, type Subscription, type Credits, type Plan, type CreditLog, type CloakedRoute, type TrafficAlert, type DashboardTrafficCard, type UserProfile, type VendorApplication, type Event, type VendorService, type AdminSetting, type Payment, type Coupon, type Wallet, type WalletTransaction, type Booking, type BookingMilestone, type EscrowAccount, type EscrowEvent, type Contract, type Dispute, type BookingMessage, type Notification, type NotificationTemplate, type SmtpSettings, type PushSubscription, type SabiGuardChat, type SabiGuardMessage } from "@shared/schema";
+import { type User, type InsertUser, type Subscription, type Credits, type Plan, type CreditLog, type CloakedRoute, type TrafficAlert, type DashboardTrafficCard, type UserProfile, type VendorApplication, type Event, type VendorService, type AdminSetting, type Payment, type Coupon, type Wallet, type WalletTransaction, type Booking, type BookingMilestone, type EscrowAccount, type EscrowEvent, type Contract, type Dispute, type BookingMessage, type Notification, type NotificationTemplate, type SmtpSettings, type PushSubscription, type SabiGuardChat, type SabiGuardMessage, type MoatData } from "@shared/schema";
 import { type IStorage } from "./types";
 
 export const FIREBASE_APP_ID = process.env.FIREBASE_APP_ID || 'legal-13d13';
@@ -2661,6 +2661,7 @@ export class FirestoreStorage implements IStorage {
   }
 
   async deleteSabiGuardChat(chatId: string): Promise<void> {
+    if (!db) throw new Error("Firestore not initialized");
     // Delete all messages in the chat
     const messagesSnapshot = await collections.sabiguardMessages().where('chatId', '==', chatId).get();
     const batch = db.batch();
@@ -2693,22 +2694,25 @@ export class FirestoreStorage implements IStorage {
     }
     const snapshot = await query.get();
     const results = snapshot.docs
-      .filter(doc => doc.id !== '_placeholder')
-      .map(doc => doc.data() as MoatData);
+      .filter((doc: any) => doc.id !== '_placeholder')
+      .map((doc: any) => doc.data() as MoatData);
     
-    results.sort((a, b) => this.toMs(b.createdAt) - this.toMs(a.createdAt));
+    results.sort((a: MoatData, b: MoatData) => this.toMs(b.createdAt) - this.toMs(a.createdAt));
     return results;
   }
 
   async createMoatData(data: any): Promise<MoatData> {
     const id = crypto.randomUUID();
-    const item = { 
+    const item: MoatData = { 
       ...data, 
       id, 
-      createdAt: new Date().toISOString() 
+      createdAt: new Date() 
     };
-    await collections.moatData().doc(id).set(item);
-    return item as MoatData;
+    await collections.moatData().doc(id).set({
+      ...item,
+      createdAt: admin.firestore.Timestamp.fromDate(item.createdAt as Date)
+    });
+    return item;
   }
 
   // ===== Vendor Service Approval Methods =====

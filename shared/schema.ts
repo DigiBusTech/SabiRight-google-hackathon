@@ -45,6 +45,7 @@ export const sabiguardMessages = pgTable("sabiguard_messages", {
 
 export const moatData = pgTable("moat_data", {
   id: varchar("id").primaryKey().default(sql`gen_random_uuid()`),
+  title: text("title"),
   category: text("category").notNull(), // 'threat', 'policy', 'legal', 'chat_intel'
   source: text("source"), // e.g., 'sabiguard_chat'
   content: text("content").notNull(),

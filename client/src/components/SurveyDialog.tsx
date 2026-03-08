@@ -35,7 +35,7 @@ export function SurveyDialog({ isOpen, onClose, feature }: SurveyDialogProps) {
       return res.json();
     },
     onSuccess: () => {
-      toast({ title: "Thank you!", description: "Your feedback helps us improve DigiZen AI." });
+      toast({ title: "Thank you!", description: "Your feedback helps us improve SabiRight." });
       onClose();
       // Reset state
       setRating(0);
@@ -49,7 +49,7 @@ export function SurveyDialog({ isOpen, onClose, feature }: SurveyDialogProps) {
   return (
     <Dialog open={isOpen} onOpenChange={onClose}>
       <DialogContent className="sm:max-w-md">
-        <DialogHeader>
+        <DialogHeader className="text-center sm:text-center">
           <DialogTitle>How are we doing?</DialogTitle>
           <DialogDescription>
             We'd love to hear your thoughts on our <span className="font-semibold capitalize">{feature}</span> feature.

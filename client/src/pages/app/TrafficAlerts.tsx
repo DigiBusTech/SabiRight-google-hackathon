@@ -3,7 +3,7 @@ import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
-import { AlertCircle, MapPin, RefreshCw, Plus, Trash2, Clock, MapPinCheckInside } from "lucide-react";
+import { AlertCircle, MapPin, RefreshCw, Plus, Trash2, Clock } from "lucide-react";
 import { useAuth } from "@/context/AuthContext";
 import { useToast } from "@/hooks/use-toast";
 import { useQuery } from "@tanstack/react-query";
@@ -39,20 +39,24 @@ declare global {
 }
 
 export default function TrafficAlerts() {
-  const { user } = useAuth();
+  const { user, profile } = useAuth();
   const { toast } = useToast();
   const mapRef = useRef<HTMLDivElement>(null);
-  const mapsRef = useRef<any>(null);
   
   const [routes, setRoutes] = useState<CloakedRoute[]>([]);
   const [selectedRoute, setSelectedRoute] = useState<CloakedRoute | null>(null);
   const [alerts, setAlerts] = useState<TrafficAlert[]>([]);
+  const [recommendation, setRecommendation] = useState<string>("");
+  const [cloakedStreets, setCloakedStreets] = useState<string[]>([]);
   const [isAddingRoute, setIsAddingRoute] = useState(false);
   const [newRoute, setNewRoute] = useState({
     routeName: "",
     startLocation: "",
     endLocation: ""
   });
+
+  const startInputRef = useRef<HTMLInputElement>(null);
+  const endInputRef = useRef<HTMLInputElement>(null);
 
   // Fetch routes
   const { data: fetchedRoutes, refetch: refetchRoutes } = useQuery({
@@ -93,91 +97,185 @@ export default function TrafficAlerts() {
     }
   }, [fetchedAlerts]);
 
+  // Map and Markers refs to persist across renders
+  const mapInstanceRef = useRef<any>(null);
+  const markersRef = useRef<any[]>([]);
+
   // Load Google Maps with API key from server
   useEffect(() => {
     const loadMapsAPI = async () => {
-      if (!window.google && !document.querySelector('script[src*="maps.googleapis"]')) {
-        try {
-          const res = await fetch('/api/settings/google_maps_api_key');
-          const apiKey = res.ok ? (await res.json()).value : '';
-          if (apiKey) {
-            const script = document.createElement('script');
-            script.src = `https://maps.googleapis.com/maps/api/js?key=${apiKey}`;
-            script.async = true;
-            script.defer = true;
-            document.head.appendChild(script);
-            script.onload = () => initMap();
-          }
-        } catch (e) {
-          console.error('Failed to load Google Maps API');
-        }
-      } else if (window.google) {
+      // Don't load if already loading or loaded
+      if (window.google) {
         initMap();
+        return;
+      }
+      
+      if (document.querySelector('script[src*="maps.googleapis"]')) {
+        return;
+      }
+
+      try {
+        const res = await fetch('/api/settings/google_maps_api_key');
+        const data = res.ok ? await res.json() : { value: '' };
+        const apiKey = data.value;
+        
+        if (apiKey) {
+          const script = document.createElement('script');
+          script.src = `https://maps.googleapis.com/maps/api/js?key=${apiKey}&libraries=places,geometry`;
+          script.async = true;
+          script.defer = true;
+          document.head.appendChild(script);
+          script.onload = () => {
+            initMap();
+            initAutocomplete();
+          };
+          script.onerror = () => {
+            console.error("Failed to load Google Maps API script");
+            toast({
+              title: "Maps Error",
+              description: "Failed to load Google Maps. Please check your internet connection and API key.",
+              variant: "destructive"
+            });
+          };
+        } else {
+          console.warn("No Google Maps API key found in settings");
+        }
+      } catch (e) {
+        console.error('Error fetching Google Maps API key:', e);
       }
     };
     loadMapsAPI();
+  }, []); // Only load once on mount
+
+  // Update map when selectedRoute changes
+  useEffect(() => {
+    if (window.google && mapInstanceRef.current) {
+      updateMap();
+    } else if (window.google && !mapInstanceRef.current) {
+      initMap();
+    }
   }, [selectedRoute]);
 
-  const initMap = () => {
-    if (!selectedRoute || !mapRef.current) return;
+  // Initialize Autocomplete
+  useEffect(() => {
+    if (isAddingRoute && window.google) {
+      initAutocomplete();
+    }
+  }, [isAddingRoute]);
 
-    const map = new window.google.maps.Map(mapRef.current, {
-      zoom: 13,
-      center: {
-        lat: parseFloat(selectedRoute.startLat.toString()),
-        lng: parseFloat(selectedRoute.startLng.toString())
-      },
-      styles: [
-        { featureType: "water", elementType: "geometry", stylers: [{ color: "#e9e9e9" }] },
-        { featureType: "landscape", elementType: "geometry", stylers: [{ color: "#f5f5f5" }] }
-      ]
+  const initAutocomplete = () => {
+    if (!window.google || !startInputRef.current || !endInputRef.current) return;
+
+    const options = {
+      componentRestrictions: { country: "ng" }, // Restrict to Nigeria
+      fields: ["formatted_address", "geometry", "name"],
+      strictBounds: false,
+    };
+
+    const startAutocomplete = new window.google.maps.places.Autocomplete(startInputRef.current, options);
+    const endAutocomplete = new window.google.maps.places.Autocomplete(endInputRef.current, options);
+
+    startAutocomplete.addListener("place_changed", () => {
+      const place = startAutocomplete.getPlace();
+      if (place.formatted_address) {
+        setNewRoute(prev => ({ ...prev, startLocation: place.formatted_address }));
+      }
     });
 
-    mapsRef.current = map;
+    endAutocomplete.addListener("place_changed", () => {
+      const place = endAutocomplete.getPlace();
+      if (place.formatted_address) {
+        setNewRoute(prev => ({ ...prev, endLocation: place.formatted_address }));
+      }
+    });
+  };
+
+  const initMap = () => {
+    if (!selectedRoute || !mapRef.current || !window.google || mapInstanceRef.current) return;
+
+    try {
+      const map = new window.google.maps.Map(mapRef.current, {
+        zoom: 13,
+        center: {
+          lat: parseFloat(selectedRoute.startLat.toString()),
+          lng: parseFloat(selectedRoute.startLng.toString())
+        },
+        styles: [
+          { featureType: "water", elementType: "geometry", stylers: [{ color: "#e9e9e9" }] },
+          { featureType: "landscape", elementType: "geometry", stylers: [{ color: "#f5f5f5" }] }
+        ]
+      });
+
+      const trafficLayer = new window.google.maps.TrafficLayer();
+      trafficLayer.setMap(map);
+      mapInstanceRef.current = map;
+      
+      updateMap();
+    } catch (err) {
+      console.error("Error initializing map:", err);
+    }
+  };
+
+  const updateMap = () => {
+    if (!selectedRoute || !mapInstanceRef.current || !window.google) return;
+
+    const map = mapInstanceRef.current;
+
+    // Clear existing markers
+    markersRef.current.forEach(marker => marker.setMap(null));
+    markersRef.current = [];
+
+    const startPos = {
+      lat: parseFloat(selectedRoute.startLat.toString()),
+      lng: parseFloat(selectedRoute.startLng.toString())
+    };
+
+    const endPos = {
+      lat: parseFloat(selectedRoute.endLat.toString()),
+      lng: parseFloat(selectedRoute.endLng.toString())
+    };
 
     // Add start marker
-    new window.google.maps.Marker({
-      position: {
-        lat: parseFloat(selectedRoute.startLat.toString()),
-        lng: parseFloat(selectedRoute.startLng.toString())
-      },
+    const startMarker = new window.google.maps.Marker({
+      position: startPos,
       map,
       title: selectedRoute.startLocation,
       icon: "http://maps.google.com/mapfiles/ms/icons/green-dot.png"
     });
+    markersRef.current.push(startMarker);
 
     // Add end marker
-    new window.google.maps.Marker({
-      position: {
-        lat: parseFloat(selectedRoute.endLat.toString()),
-        lng: parseFloat(selectedRoute.endLng.toString())
-      },
+    const endMarker = new window.google.maps.Marker({
+      position: endPos,
       map,
       title: selectedRoute.endLocation,
       icon: "http://maps.google.com/mapfiles/ms/icons/red-dot.png"
     });
+    markersRef.current.push(endMarker);
+
+    // Center map to show both points
+    const bounds = new window.google.maps.LatLngBounds();
+    bounds.extend(startPos);
+    bounds.extend(endPos);
+    map.fitBounds(bounds);
 
     // Draw route line
     const directionsService = new window.google.maps.DirectionsService();
     const directionsRenderer = new window.google.maps.DirectionsRenderer({
       map,
       polylineOptions: {
-        strokeColor: selectedRoute.lastStatus === 'cleared' ? '#22c55e' : '#ef4444',
-        strokeWeight: 4
-      }
+        strokeColor: "#1e40af",
+        strokeWeight: 5,
+        strokeOpacity: 0.7
+      },
+      suppressMarkers: true
     });
 
     directionsService.route({
-      origin: {
-        lat: parseFloat(selectedRoute.startLat.toString()),
-        lng: parseFloat(selectedRoute.startLng.toString())
-      },
-      destination: {
-        lat: parseFloat(selectedRoute.endLat.toString()),
-        lng: parseFloat(selectedRoute.endLng.toString())
-      },
+      origin: startPos,
+      destination: endPos,
       travelMode: window.google.maps.TravelMode.DRIVING
-    }, (result: any, status: string) => {
+    }, (result: any, status: any) => {
       if (status === window.google.maps.DirectionsStatus.OK) {
         directionsRenderer.setDirections(result);
       }
@@ -188,6 +286,15 @@ export default function TrafficAlerts() {
     e.preventDefault();
     if (!user?.uid || !newRoute.routeName || !newRoute.startLocation || !newRoute.endLocation) {
       toast({ title: "Error", description: "Please fill all fields", variant: "destructive" });
+      return;
+    }
+
+    if (!window.google) {
+      toast({ 
+        title: "Maps Not Ready", 
+        description: "Google Maps is still loading. Please try again in a moment.", 
+        variant: "destructive" 
+      });
       return;
     }
 
@@ -237,47 +344,29 @@ export default function TrafficAlerts() {
     if (!selectedRoute) return;
 
     try {
-      // Simulate checking route status via Google Maps API
-      const geocoder = new window.google.maps.Geocoder();
-      
-      // Random status update for demo
-      const statuses = ['cleared', 'active', 'unknown'] as const;
-      const newStatus = statuses[Math.floor(Math.random() * statuses.length)];
-
-      const res = await fetch(`/api/routes/${selectedRoute.id}/status`, {
-        method: 'PATCH',
+      const res = await fetch(`/api/routes/${selectedRoute.id}/refresh`, {
+        method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ status: newStatus })
+        body: JSON.stringify({ userId: user?.uid })
       });
 
       if (res.ok) {
+        const data = await res.json();
+        const newStatus = data.status;
+        const alertMsg = data.message;
+        const routeRec = data.recommendation;
+        const cloaked = data.cloakedStreets || [];
+
         const updatedRoute = { ...selectedRoute, lastStatus: newStatus, lastChecked: new Date().toISOString() };
         setSelectedRoute(updatedRoute);
+        setRecommendation(routeRec || "");
+        setCloakedStreets(cloaked);
         setRoutes(routes.map(r => r.id === selectedRoute.id ? updatedRoute : r));
-
-        // Create alert
-        const alertMsg = newStatus === 'cleared' 
-          ? 'Route cleared - Safe to travel'
-          : newStatus === 'active'
-          ? 'Active checkpoint detected on route'
-          : 'Route status unknown';
-
-        await fetch('/api/alerts', {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({
-            routeId: selectedRoute.id,
-            userId: user?.uid,
-            alertType: newStatus,
-            message: alertMsg,
-            severity: newStatus === 'cleared' ? 'low' : newStatus === 'active' ? 'high' : 'medium'
-          })
-        });
 
         refetchAlerts();
         toast({ 
           title: "Route Updated", 
-          description: `Status: ${newStatus.toUpperCase()}`
+          description: alertMsg
         });
       }
     } catch (err) {
@@ -300,9 +389,17 @@ export default function TrafficAlerts() {
 
   return (
     <div className="space-y-8 pb-20">
-      <div>
-        <h2 className="text-2xl font-bold tracking-tight">Traffic Alerts</h2>
-        <p className="text-slate-500 mt-1">Monitor cloaked routes and checkpoint status in real-time</p>
+      <div className="flex flex-col md:flex-row md:items-center justify-between gap-4">
+        <div>
+          <h2 className="text-2xl font-bold tracking-tight">Traffic Alerts</h2>
+          <p className="text-slate-500 mt-1">Monitor cloaked routes and checkpoint status in real-time</p>
+        </div>
+        {user?.uid && (
+          <div className="bg-slate-100 px-4 py-2 rounded-lg border border-slate-200">
+            <p className="text-[10px] font-bold text-slate-500 uppercase">Monitoring City</p>
+            <p className="text-sm font-bold text-slate-700">{(profile?.city || "Lagos").toUpperCase()}</p>
+          </div>
+        )}
       </div>
 
       <div className="grid md:grid-cols-3 gap-6">
@@ -330,13 +427,15 @@ export default function TrafficAlerts() {
                     className="h-9 text-sm"
                   />
                   <Input 
-                    placeholder="Start location"
+                    ref={startInputRef}
+                    placeholder="Start location (street or business)"
                     value={newRoute.startLocation}
                     onChange={(e) => setNewRoute({...newRoute, startLocation: e.target.value})}
                     className="h-9 text-sm"
                   />
                   <Input 
-                    placeholder="End location"
+                    ref={endInputRef}
+                    placeholder="End location (street or business)"
                     value={newRoute.endLocation}
                     onChange={(e) => setNewRoute({...newRoute, endLocation: e.target.value})}
                     className="h-9 text-sm"
@@ -348,46 +447,76 @@ export default function TrafficAlerts() {
           )}
 
           <div className="space-y-2 max-h-[500px] overflow-y-auto">
-            {routes.map(route => (
-              <Card 
-                key={route.id}
-                className={`cursor-pointer transition-all ${
-                  selectedRoute?.id === route.id 
-                    ? 'ring-2 ring-primary shadow-md' 
-                    : 'hover:shadow-md'
-                }`}
-                onClick={() => setSelectedRoute(route)}
-              >
-                <CardContent className="p-4">
-                  <div className="flex items-start justify-between gap-2">
-                    <div className="flex-1 min-w-0">
-                      <p className="font-bold text-sm truncate">{route.routeName}</p>
-                      <p className="text-xs text-slate-600 truncate">{route.startLocation}</p>
-                      <p className="text-xs text-slate-600 truncate">→ {route.endLocation}</p>
+            {routes.length === 0 ? (
+              <div className="p-8 text-center bg-slate-50 rounded-xl border-2 border-dashed border-slate-200">
+                <MapPin className="h-10 w-10 text-slate-300 mx-auto mb-3" />
+                <p className="text-sm font-medium text-slate-600">No routes added yet</p>
+                <p className="text-xs text-slate-400 mt-1">Add your frequent routes to start monitoring traffic and checkpoints.</p>
+                <Button 
+                  variant="outline" 
+                  size="sm" 
+                  className="mt-4"
+                  onClick={() => setIsAddingRoute(true)}
+                >
+                  Add Your First Route
+                </Button>
+              </div>
+            ) : (
+              routes.map(route => (
+                <Card 
+                  key={route.id}
+                  className={`cursor-pointer transition-all ${
+                    selectedRoute?.id === route.id 
+                      ? 'ring-2 ring-primary shadow-md' 
+                      : 'hover:shadow-md'
+                  }`}
+                  onClick={() => {
+                    setSelectedRoute(route);
+                    setRecommendation(""); // Clear recommendation when switching routes
+                    setCloakedStreets([]); // Clear cloaked streets when switching routes
+                  }}
+                >
+                  <CardContent className="p-4">
+                    <div className="flex items-start justify-between gap-2">
+                      <div className="flex-1 min-w-0">
+                        <p className="font-bold text-sm truncate">{route.routeName}</p>
+                        <p className="text-xs text-slate-600 truncate">{route.startLocation}</p>
+                        <p className="text-xs text-slate-600 truncate">→ {route.endLocation}</p>
+                      </div>
+                      <Badge className={`text-xs whitespace-nowrap ${
+                        route.lastStatus === 'cleared' 
+                          ? 'bg-green-100 text-green-800 border-green-300'
+                          : route.lastStatus === 'active'
+                          ? 'bg-red-100 text-red-800 border-red-300'
+                          : 'bg-yellow-100 text-yellow-800 border-yellow-300'
+                      }`}>
+                        {(route.lastStatus || 'UNKNOWN').toUpperCase()}
+                      </Badge>
                     </div>
-                    <Badge className={`text-xs whitespace-nowrap ${
-                      route.lastStatus === 'cleared' 
-                        ? 'bg-green-100 text-green-800 border-green-300'
-                        : route.lastStatus === 'active'
-                        ? 'bg-red-100 text-red-800 border-red-300'
-                        : 'bg-yellow-100 text-yellow-800 border-yellow-300'
-                    }`}>
-                      {route.lastStatus.toUpperCase()}
-                    </Badge>
-                  </div>
-                  <p className="text-xs text-slate-500 mt-2 flex items-center gap-1">
-                    <Clock className="h-3 w-3" />
-                    {new Date(route.lastChecked).toLocaleDateString()}
-                  </p>
-                </CardContent>
-              </Card>
-            ))}
+                    <p className="text-xs text-slate-500 mt-2 flex items-center gap-1">
+                      <Clock className="h-3 w-3" />
+                      {new Date(route.lastChecked).toLocaleDateString()}
+                    </p>
+                  </CardContent>
+                </Card>
+              ))
+            )}
           </div>
         </div>
 
         {/* Map and Details */}
         <div className="md:col-span-2 space-y-4">
-          {selectedRoute ? (
+          {routes.length === 0 ? (
+            <Card className="h-full flex flex-col items-center justify-center p-12 bg-slate-50 border-2 border-dashed border-slate-200">
+              <div className="bg-white p-6 rounded-full shadow-sm mb-6">
+                <AlertCircle className="h-12 w-12 text-primary" />
+              </div>
+              <h3 className="text-xl font-bold text-slate-800 mb-2">Monitor Your Commute</h3>
+              <p className="text-slate-500 text-center max-w-md">
+                Add routes like "Home to Office" or "School Run" to receive real-time updates on traffic, checkpoints, and cloaked streets.
+              </p>
+            </Card>
+          ) : selectedRoute ? (
             <>
               {/* Map */}
               <Card className="overflow-hidden">
@@ -430,7 +559,7 @@ export default function TrafficAlerts() {
                           : selectedRoute.lastStatus === 'active' ? 'text-red-600'
                           : 'text-yellow-600'
                         }>
-                          {selectedRoute.lastStatus.toUpperCase()}
+                          {(selectedRoute.lastStatus || 'UNKNOWN').toUpperCase()}
                         </span>
                       </p>
                     </div>
@@ -441,6 +570,38 @@ export default function TrafficAlerts() {
                       </p>
                     </div>
                   </div>
+
+                  {(recommendation || (typeof cloakedStreets !== 'undefined' && cloakedStreets.length > 0)) && (
+                    <div className="space-y-3">
+                      {recommendation && (
+                        <div className="p-4 bg-blue-50 border border-blue-100 rounded-lg">
+                          <p className="text-xs font-bold text-blue-800 uppercase mb-2 flex items-center gap-2">
+                            <MapPin className="h-3 w-3" />
+                            Route Recommendation
+                          </p>
+                          <p className="text-sm text-blue-900 leading-relaxed font-medium">
+                            {recommendation}
+                          </p>
+                        </div>
+                      )}
+
+                      {typeof cloakedStreets !== 'undefined' && cloakedStreets.length > 0 && (
+                        <div className="p-4 bg-amber-50 border border-amber-100 rounded-lg">
+                          <p className="text-xs font-bold text-amber-800 uppercase mb-2 flex items-center gap-2">
+                            <AlertCircle className="h-3 w-3" />
+                            Avoid Cloaked Streets
+                          </p>
+                          <div className="flex flex-wrap gap-2">
+                            {cloakedStreets.map((street, idx) => (
+                              <Badge key={idx} variant="outline" className="bg-white border-amber-200 text-amber-700">
+                                {street}
+                              </Badge>
+                            ))}
+                          </div>
+                        </div>
+                      )}
+                    </div>
+                  )}
 
                   <Button 
                     onClick={handleRefresh}

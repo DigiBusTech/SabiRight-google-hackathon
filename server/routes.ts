@@ -1,6 +1,9 @@
 import type { Express, Request, Response, NextFunction } from "express";
+import "./types";
 import express from "express";
 import admin from "firebase-admin";
+import nodemailer from "nodemailer";
+import webpush from 'web-push';
 import { createServer, type Server } from "http";
 import { firestoreStorage as storage, FIREBASE_APP_ID } from "./firestoreStorage";
 import { verifyAdminToken, verifyUserToken, isUserAdmin, getFirestoreUserFlags } from "./firestoreStorage";
@@ -8,7 +11,25 @@ import PaystackService from "./paystackService";
 import multer from 'multer';
 import path from 'path';
 import fs from 'fs';
-// import Stripe from 'stripe';
+
+async function verifyRecaptcha(token: string): Promise<boolean> {
+  try {
+    const secret = process.env.RECAPTCHA_SECRET_KEY;
+    if (!secret) {
+      console.warn('RECAPTCHA_SECRET_KEY not set, skipping verification');
+      return true;
+    }
+
+    const response = await fetch(`https://www.google.com/recaptcha/api/siteverify?secret=${secret}&response=${token}`, {
+      method: 'POST'
+    });
+    const data = await response.json() as any;
+    return data.success;
+  } catch (error) {
+    console.error('reCAPTCHA verification error:', error);
+    return false;
+  }
+}
 
 // Multer setup
 const storageConfig = multer.diskStorage({
@@ -49,23 +70,19 @@ const adminAuth = async (req: Request, res: Response, next: NextFunction) => {
 
   // Ensure the local DB is synced with admin status from Firestore
   try {
-    console.log(`[adminAuth] Checking profile for user ${result.userId}`);
     const profile = await storage.getUserProfile(result.userId);
-    console.log(`[adminAuth] Profile found:`, profile ? { isAdmin: profile.isAdmin } : 'null');
     
     if (profile) {
       if (!profile.isAdmin) {
-        console.log(`[adminAuth] Syncing admin status for user ${result.userId} to true`);
         await storage.toggleUserAdmin(result.userId, true);
       }
     } else {
       // Proactively create profile in DB if it doesn't exist but user is admin in Firestore
-      console.log(`[adminAuth] Creating missing admin profile for user ${result.userId}`);
       await storage.updateUserProfile(result.userId, {
         userId: result.userId,
         isAdmin: true,
         isVendor: false,
-        kycStatus: 'verified',
+        emailVerificationStatus: 'verified',
         createdAt: new Date()
       });
     }
@@ -74,22 +91,23 @@ const adminAuth = async (req: Request, res: Response, next: NextFunction) => {
     // We still allow the request if the token is valid, but logging the error is important
   }
   
-  (req as any).userId = result.userId;
+  req.userId = result.userId;
+  req.isAdmin = true;
   next();
 };
 
-const kycVerifiedAuth = async (req: Request, res: Response, next: NextFunction) => {
-  const userId = (req as any).userId;
+const emailVerifiedAuth = async (req: Request, res: Response, next: NextFunction) => {
+  const userId = req.userId;
   if (!userId) {
     return res.status(401).json({ error: 'Authentication required' });
   }
 
   try {
     const profile = await storage.getUserProfile(userId);
-    if (!profile || profile.kycStatus !== 'verified') {
+    if (!profile || profile.emailVerificationStatus !== 'verified') {
       return res.status(403).json({ 
-        error: 'KYC verification required', 
-        message: 'You must have a verified KYC status to perform this action.' 
+        error: 'Email verification required', 
+        message: 'You must have a verified email to perform this action.' 
       });
     }
     next();
@@ -110,13 +128,31 @@ const userAuth = async (req: Request, res: Response, next: NextFunction) => {
   if (!result.valid) {
     return res.status(401).json({ error: 'Invalid or expired token' });
   }
+
+  // Set user data on request for convenience
+  try {
+    const decodedToken = await admin.auth().verifyIdToken(token);
+    req.user = {
+      uid: decodedToken.uid,
+      email: decodedToken.email,
+      displayName: decodedToken.name || decodedToken.email?.split('@')[0] || 'User'
+    };
+  } catch (e) {
+    console.error('Failed to decode token for user context:', e);
+  }
   
   const pathUserId = req.params.userId;
   if (pathUserId && result.userId !== pathUserId) {
     return res.status(403).json({ error: 'Access denied: User ID mismatch' });
   }
   
-  (req as any).userId = result.userId;
+  const userId = result.userId;
+  if (!userId) {
+    return res.status(401).json({ error: 'Invalid or expired token' });
+  }
+
+  req.userId = userId;
+  req.isAdmin = await isUserAdmin(userId);
   next();
 };
 
@@ -147,8 +183,8 @@ const bookingParticipantAuth = async (req: Request, res: Response, next: NextFun
     return res.status(403).json({ error: 'Access denied: Not a booking participant' });
   }
   
-  (req as any).userId = result.userId;
-  (req as any).booking = booking;
+  req.userId = result.userId;
+  req.booking = booking;
   next();
 };
 
@@ -172,7 +208,6 @@ export async function registerRoutes(
   app.get("/api/plans", async (req, res, next) => {
     try {
       const plans = await storage.getAllPlans();
-      console.log(`[API] GET /api/plans returned ${plans.length} plans`);
       res.json(plans);
     } catch (error) {
       console.error(`[API] GET /api/plans error:`, error);
@@ -184,8 +219,16 @@ export async function registerRoutes(
   app.get("/api/settings/public", async (req, res, next) => {
     try {
       const settings = await storage.getAdminSettings();
+      const allowedKeys = [
+        'captcha_site_key', 'ai_provider', 'site_title', 'site_logo', 'footer_text', 
+        'seo_description', 'contact_email', 'site_favicon', 'site_favicon_dark',
+        'hero_title', 'hero_subtitle', 'video_demo_url', 'seo_title', 
+        'privacy_policy', 'terms_of_service', 'cookie_policy',
+        'frontend_page_content', 'frontend_page_content_about', 'frontend_page_content_contact', 'frontend_page_content_footer'
+      ];
+      
       const publicSettings = settings.filter(s => 
-        ['captcha_site_key', 'ai_provider'].includes(s.key)
+        allowedKeys.includes(s.key)
       ).reduce((acc: any, s) => {
         acc[s.key] = s.value;
         return acc;
@@ -195,6 +238,8 @@ export async function registerRoutes(
       next(error);
     }
   });
+
+
 
   app.get("/api/settings/google_maps_api_key", async (req, res, next) => {
     try {
@@ -250,14 +295,12 @@ export async function registerRoutes(
       }
       
       const updatedCredits = await storage.getUserCredits(userId);
-      const total = updatedCredits?.totalCredits || 0;
-      const used = updatedCredits?.usedCredits || 0;
-      const available = total - used;
+      const total = updatedCredits?.totalCredits ?? 0;
       
       res.json({
         totalCredits: total,
-        usedCredits: used,
-        availableCredits: available,
+        usedCredits: 0,
+        availableCredits: total,
         renewalDate: updatedCredits?.renewalDate
       });
     } catch (error) {
@@ -280,8 +323,8 @@ export async function registerRoutes(
       }
 
       const credits = await storage.getUserCredits(userId);
-      const total = credits?.totalCredits || 0;
-      const used = credits?.usedCredits || 0;
+      const total = credits?.totalCredits ?? 0;
+      const used = credits?.usedCredits ?? 0;
       res.json({
         success: true,
         remainingCredits: total - used,
@@ -303,8 +346,8 @@ export async function registerRoutes(
 
       await storage.refundCredits(userId, amount, feature);
       const credits = await storage.getUserCredits(userId);
-      const total = credits?.totalCredits || 0;
-      const used = credits?.usedCredits || 0;
+      const total = credits?.totalCredits ?? 0;
+      const used = credits?.usedCredits ?? 0;
       res.json({
         success: true,
         remainingCredits: total - used
@@ -355,6 +398,117 @@ export async function registerRoutes(
       });
 
       res.json(route);
+    } catch (error) {
+      next(error);
+    }
+  });
+
+  app.post("/api/routes/:routeId/refresh", async (req, res, next) => {
+    try {
+      const { routeId } = req.params;
+      const { userId } = req.body;
+
+      if (!userId) {
+        return res.status(400).json({ error: 'User ID required' });
+      }
+
+      // Get route details
+      const route = await storage.getRoute(routeId);
+      if (!route) {
+        return res.status(404).json({ error: 'Route not found' });
+      }
+
+      // Attempt to get actual traffic data via Google Maps API if available
+      let googleTrafficContext = "";
+      try {
+        const mapsKey = await storage.getAdminSetting('google_maps_api_key');
+        if (mapsKey?.value) {
+          const origin = `${route.startLat},${route.startLng}`;
+          const destination = `${route.endLat},${route.endLng}`;
+          const url = `https://maps.googleapis.com/maps/api/directions/json?origin=${origin}&destination=${destination}&departure_time=now&traffic_model=best_guess&key=${mapsKey.value}`;
+          
+          const gRes = await fetch(url);
+          if (gRes.ok) {
+            const gData = await gRes.json() as any;
+            if (gData.routes && gData.routes[0] && gData.routes[0].legs[0]) {
+              const leg = gData.routes[0].legs[0];
+              const duration = leg.duration.text;
+              const durationInTraffic = leg.duration_in_traffic?.text || duration;
+              googleTrafficContext = `Google Maps Report: Normal time: ${duration}. Current time with traffic: ${durationInTraffic}. ${leg.duration_in_traffic ? 'Delays detected.' : 'No significant delays.'}`;
+            }
+          }
+        }
+      } catch (gErr) {
+        console.error('Google Maps Traffic check failed:', gErr);
+      }
+
+      // Use AI to determine route status and recommendations
+      const prompt = `As a smart traffic assistant, analyze this route in Nigeria:
+      Route: ${route.routeName}
+      From: ${route.startLocation}
+      To: ${route.endLocation}
+      
+      ${googleTrafficContext ? `Live Traffic Data: ${googleTrafficContext}` : "No live sensor data available."}
+      
+      Determine the current status. Is there an active checkpoint (likely if there are unusual delays or patterns), heavy traffic, or is it cleared?
+      Also provide a recommended route to follow if there's an issue, or confirm the main route is best.
+      
+      Provide:
+      1. status: one of 'active', 'cleared', 'unknown'
+      2. message: a helpful status message for the user
+      3. recommendation: specific route advice (e.g., "Follow Ikorodu road, then divert at Fadeyi to avoid the checkpoint.")
+      4. cloakedStreets: a list of any "cloaked" or hidden streets/paths to avoid due to checkpoints or heavy traffic.
+      
+      Format the response as JSON: {"status": "...", "message": "...", "recommendation": "...", "cloakedStreets": ["street1", "street2"]}`;
+
+      let result;
+      try {
+        const aiResponse = await generateAIResponse(prompt);
+        const cleanedResponse = aiResponse?.replace(/```json|```/g, '').trim();
+        result = JSON.parse(cleanedResponse || '{}');
+      } catch (aiError) {
+        console.error('AI Route Refresh Error:', aiError);
+        result = { 
+          status: 'unknown', 
+          message: 'Unable to determine status at this time.',
+          recommendation: 'Stay on the main route and exercise caution.',
+          cloakedStreets: []
+        };
+      }
+
+      const status = result.status || 'unknown';
+      const message = result.message || 'Route status updated.';
+      const recommendation = result.recommendation || 'No specific recommendation available.';
+      const cloakedStreets = result.cloakedStreets || [];
+
+      // Update route status in database
+      await storage.updateRouteStatus(routeId, status);
+
+      // Create an alert for the user
+      await storage.createAlert({
+        routeId,
+        userId,
+        alertType: status === 'active' ? 'active_checkpoint' : status === 'cleared' ? 'cleared' : 'unknown',
+        message: `${message} Recommendation: ${recommendation} ${cloakedStreets.length > 0 ? 'Avoid: ' + cloakedStreets.join(', ') : ''}`,
+        severity: status === 'active' ? 'high' : status === 'cleared' ? 'low' : 'medium'
+      });
+
+      // Update user dashboard traffic
+      try {
+        if (typeof storage.updateDashboardTraffic === 'function') {
+          const description = `${message} ${recommendation} ${cloakedStreets.length > 0 ? 'Avoid: ' + cloakedStreets.join(', ') : ''}`;
+          await storage.updateDashboardTraffic(
+            userId, 
+            route.routeName, 
+            status.toUpperCase(), 
+            description
+          );
+        }
+      } catch (dashErr) {
+        console.error('Failed to update dashboard traffic:', dashErr);
+      }
+
+      res.json({ success: true, status, message, recommendation, cloakedStreets });
     } catch (error) {
       next(error);
     }
@@ -429,20 +583,68 @@ export async function registerRoutes(
     }
   });
 
-  // KYC & Vendor Endpoints
-  app.post("/api/kyc/:userId/submit", async (req, res, next) => {
+  // Email Verification & Vendor Endpoints
+  app.post("/api/email-verification/:userId/submit", async (req, res, next) => {
     try {
       const { userId } = req.params;
-      const { kycDocument } = req.body;
+      const { email } = req.body;
+      // Generate 6-digit code
+      const code = Math.floor(100000 + Math.random() * 900000).toString();
+      const expires = new Date();
+      expires.setHours(expires.getHours() + 1); // 1 hour expiry
 
-      await storage.updateUserKYC(userId, 'pending', kycDocument);
+      await storage.setEmailVerificationCode(userId, code, expires);
+      
+      // Update profile email if provided
+      if (email) {
+        await storage.updateUserProfile(userId, { email });
+      }
+
+      // Send email using template
+      const userProfile = await storage.getUserProfile(userId);
+      await storage.sendNotification({
+        userId,
+        type: 'email_verification_code',
+        title: 'Your Verification Code',
+        message: `Your SabiRight verification code is: ${code}. This code expires in 1 hour.`,
+        templateName: 'email_verification_code',
+        variables: { 
+          code, 
+          expiry: '1 hour',
+          userName: userProfile?.displayName || userProfile?.email || 'User'
+        },
+        channels: ['email', 'in_app']
+      });
+
+      await storage.updateEmailVerificationStatus(userId, 'pending');
       res.json({ success: true, status: 'pending' });
+    } catch (error) {
+      console.error(`[EmailVerification] Error in submit:`, error);
+      next(error);
+    }
+  });
+
+  app.post("/api/email-verification/:userId/verify-code", async (req, res, next) => {
+    try {
+      const { userId } = req.params;
+      const { code } = req.body;
+
+      if (!code) {
+        return res.status(400).json({ error: 'Verification code is required' });
+      }
+
+      const verified = await storage.verifyEmailCode(userId, code);
+      if (verified) {
+        res.json({ success: true, status: 'verified' });
+      } else {
+        res.status(400).json({ error: 'Invalid or expired verification code' });
+      }
     } catch (error) {
       next(error);
     }
   });
 
-  app.get("/api/debug/user/:userId", async (req, res) => {
+  app.get("/api/debug/user/:userId", async (req: Request, res: Response) => {
     try {
       const { userId } = req.params;
       const profile = await storage.getUserProfile(userId);
@@ -479,7 +681,6 @@ export async function registerRoutes(
   app.get("/api/profile/:userId", async (req, res, next) => {
     try {
       const { userId } = req.params;
-      console.log(`[API] Fetching profile for ${userId}`);
       let profile = await storage.getUserProfile(userId);
       
       // Sync flags if profile exists
@@ -488,13 +689,11 @@ export async function registerRoutes(
         let changed = false;
         
         if (flags.isAdmin && !profile.isAdmin) {
-          console.log(`[API] Syncing admin status for ${userId} from Firestore`);
           await storage.toggleUserAdmin(userId, true);
           changed = true;
         }
         
         if (flags.isVendor && !profile.isVendor) {
-          console.log(`[API] Syncing vendor status for ${userId} from Firestore`);
           await storage.toggleUserVendor(userId, true);
           changed = true;
         }
@@ -504,8 +703,17 @@ export async function registerRoutes(
         }
       }
 
-      console.log(`[API] Returning profile for ${userId}:`, profile ? { isAdmin: profile.isAdmin, isVendor: profile.isVendor } : 'null');
       res.json(profile || {});
+    } catch (error) {
+      next(error);
+    }
+  });
+
+  app.post("/api/profile/:userId/referral-code", async (req, res, next) => {
+    try {
+      const { userId } = req.params;
+      const code = await storage.generateReferralCode(userId);
+      res.json({ referralCode: code });
     } catch (error) {
       next(error);
     }
@@ -514,7 +722,7 @@ export async function registerRoutes(
   app.post("/api/profile/:userId", async (req, res, next) => {
     try {
       const { userId } = req.params;
-      const { email, displayName, captchaToken } = req.body;
+      const { email, displayName, phoneNumber, dob, gender, state, city, referralCode, captchaToken } = req.body;
       
       // Verify reCAPTCHA if token is provided or if it's a new user
       const existingProfile = await storage.getUserProfile(userId);
@@ -544,25 +752,76 @@ export async function registerRoutes(
           changed = true;
         }
         
+        // Also update any missing fields if they were provided in this call
+        const updates: any = {};
+        if (email) updates.email = email;
+        if (displayName) updates.displayName = displayName;
+        if (phoneNumber) updates.phoneNumber = phoneNumber;
+        if (dob) updates.dob = dob;
+        if (gender) updates.gender = gender;
+        if (state) updates.state = state;
+        if (city) updates.city = city;
+
+        if (Object.keys(updates).length > 0) {
+          const updated = await storage.updateUserProfile(userId, updates);
+          return res.json(updated);
+        }
+        
         return res.json(existingProfile);
       }
       
-      const flags = await getFirestoreUserFlags(userId);
-      console.log(`[API] Creating profile for ${userId}, flags:`, flags);
       
-      await storage.createUser({ id: userId, username: displayName || email || userId, password: '' } as any);
+      const flags = await getFirestoreUserFlags(userId);
+
+      await storage.createUser({ 
+        id: userId, 
+        username: displayName || email || userId, 
+        password: '',
+        email,
+        phoneNumber,
+        dob,
+        gender,
+        state,
+        city
+      } as any);
+      
       await storage.updateUserProfile(userId, {
         userId,
         email: email || null,
         displayName: displayName || null,
+        phoneNumber: phoneNumber || null,
+        dob: dob || null,
+        gender: gender || null,
+        state: state || null,
+        city: city || null,
         isVendor: flags.isVendor,
         isAdmin: flags.isAdmin,
-        kycStatus: 'pending',
+        emailVerified: false,
+        emailVerificationStatus: 'pending',
         vendorMode: false,
         createdAt: new Date()
       });
+
+      // Handle referral if provided
+      if (referralCode) {
+        await storage.processReferral(userId, referralCode);
+      }
       
       const newProfile = await storage.getUserProfile(userId);
+
+      // Send welcome email
+      if (email) {
+        await storage.sendNotification({
+          userId,
+          type: 'welcome_email',
+          title: 'Welcome to SabiRight!',
+          message: `Hello ${displayName || 'Citizen'}, Welcome to SabiRight! We are excited to have you on board.`,
+          templateName: 'welcome_email',
+          variables: { name: displayName || 'Citizen' },
+          channels: ['email', 'in_app']
+        });
+      }
+
       res.json(newProfile);
     } catch (error) {
       next(error);
@@ -604,7 +863,7 @@ export async function registerRoutes(
     try {
       const { userId } = req.params;
       const application = await storage.getVendorApplication(userId);
-      res.json(application || {});
+      res.json(application || null);
     } catch (error) {
       next(error);
     }
@@ -672,23 +931,82 @@ export async function registerRoutes(
   app.post("/api/dashboard/traffic/:userId/refresh", async (req, res, next) => {
     try {
       const { userId } = req.params;
-      const { location, status, description } = req.body;
+      const { city } = req.body;
 
       const credits = await storage.getUserCredits(userId);
       if (!credits) {
         return res.status(402).json({ error: 'No credits account' });
       }
 
-      const totalCredits = credits.totalCredits || 0;
-      const usedCredits = credits.usedCredits || 0;
-      if (totalCredits - usedCredits < 1) {
+      const availableCredits = credits.totalCredits || 0;
+      if (availableCredits < 1) {
         return res.status(402).json({ error: 'Insufficient credits for refresh' });
       }
 
+      // Deduct credits
       await storage.deductCredits(userId, 1, 'traffic_refresh', 'Daily traffic alert refresh');
-      await storage.updateDashboardTraffic(userId, location, status, description);
 
-      res.json({ success: true });
+      // Attempt to get live data via internet search first
+      let liveContext = "";
+      try {
+        const searchKey = await storage.getAdminSetting('tavily_api_key');
+        const query = `current traffic updates and road alerts in ${city || 'Lagos'}, Nigeria today`;
+        
+        if (searchKey?.value) {
+          const searchRes = await fetch('https://api.tavily.com/search', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({
+              api_key: searchKey.value,
+              query: query,
+              search_depth: "basic",
+              max_results: 3
+            })
+          });
+          if (searchRes.ok) {
+            const searchData = await searchRes.json() as any;
+            liveContext = searchData.results.map((r: any) => r.content).join('\n');
+          }
+        }
+      } catch (searchErr) {
+        console.error('Traffic internet search failed:', searchErr);
+      }
+
+      // Generate live traffic update using AI
+      const prompt = `Generate a realistic, concise traffic update for ${city || 'Lagos'}, Nigeria. 
+      ${liveContext ? `Use this real-time info if relevant: ${liveContext}` : "If no real-time info, use highly probable current patterns."}
+      
+      Include:
+      1. A specific location (e.g., a major road or bridge).
+      2. A status (one of: 'active', 'cleared', 'normal').
+      3. A brief description of the situation.
+      
+      Format the response as JSON: {"location": "...", "status": "active|cleared|normal", "description": "..."}`;
+
+      let trafficUpdate;
+      try {
+        const aiResponse = await generateAIResponse(prompt);
+        // Clean up the response in case AI adds markdown
+        const cleanedResponse = aiResponse?.replace(/```json|```/g, '').trim();
+        trafficUpdate = JSON.parse(cleanedResponse || '{}');
+      } catch (aiError) {
+        console.error('AI Traffic Generation Error:', aiError);
+        // Fallback to more generic location if AI fails
+        trafficUpdate = {
+          location: city ? `${city} Major Route` : 'City Center',
+          status: 'normal',
+          description: 'Traffic information currently being updated. Please check again soon.'
+        };
+      }
+
+      await storage.updateDashboardTraffic(
+        userId, 
+        trafficUpdate.location || "Major Route", 
+        trafficUpdate.status || "normal", 
+        trafficUpdate.description || "Traffic is moving normally."
+      );
+
+      res.json({ success: true, traffic: trafficUpdate });
     } catch (error) {
       next(error);
     }
@@ -716,10 +1034,10 @@ export async function registerRoutes(
     }
   });
 
-  app.post("/api/events", userAuth, kycVerifiedAuth, async (req, res, next) => {
+  app.post("/api/events", userAuth, emailVerifiedAuth, async (req, res, next) => {
     try {
       const { title, description, date, time, location, category, organizer, organizerId, maxAttendees } = req.body;
-      const userId = (req as any).userId;
+      const userId = req.userId;
       
       if (!title || !date || !time || !location || !category || !organizer) {
         return res.status(400).json({ error: 'Missing required fields' });
@@ -744,7 +1062,7 @@ export async function registerRoutes(
     }
   });
 
-  app.post("/api/events/:eventId/register", userAuth, kycVerifiedAuth, async (req, res, next) => {
+  app.post("/api/events/:eventId/register", userAuth, emailVerifiedAuth, async (req, res, next) => {
     try {
       const { eventId } = req.params;
       const { userId } = req.body;
@@ -760,14 +1078,16 @@ export async function registerRoutes(
     }
   });
 
-  app.delete("/api/events/:eventId", userAuth, kycVerifiedAuth, async (req, res, next) => {
+  app.delete("/api/events/:eventId", userAuth, emailVerifiedAuth, async (req, res, next) => {
     try {
       const { eventId } = req.params;
-      const userId = (req as any).userId;
+      const userId = req.userId;
+      if (!userId) return res.status(401).json({ error: 'Authentication required' });
+
       const isAdmin = await isUserAdmin(userId);
       
       // Only admin or the creator can delete? 
-      // For now, let's just protect with KYC as requested, 
+      // For now, let's just protect with email verification as requested, 
       // but ideally we check ownership.
       await storage.deleteEvent(eventId);
       res.json({ success: true });
@@ -780,7 +1100,8 @@ export async function registerRoutes(
   app.post("/api/events/:eventId/save", userAuth, async (req, res, next) => {
     try {
       const { eventId } = req.params;
-      const userId = (req as any).userId;
+      const userId = req.userId;
+      if (!userId) return res.status(401).json({ error: 'Authentication required' });
 
       await storage.saveEvent(userId, eventId);
       res.json({ success: true });
@@ -792,7 +1113,8 @@ export async function registerRoutes(
   app.delete("/api/events/:eventId/save", userAuth, async (req, res, next) => {
     try {
       const { eventId } = req.params;
-      const userId = (req as any).userId;
+      const userId = req.userId;
+      if (!userId) return res.status(401).json({ error: 'Authentication required' });
 
       await storage.unsaveEvent(userId, eventId);
       res.json({ success: true });
@@ -804,7 +1126,8 @@ export async function registerRoutes(
   app.get("/api/events/saved/:userId", userAuth, async (req, res, next) => {
     try {
       const { userId } = req.params;
-      const currentUserId = (req as any).userId;
+      const currentUserId = req.userId;
+      if (!currentUserId) return res.status(401).json({ error: 'Authentication required' });
       const isAdmin = await isUserAdmin(currentUserId);
 
       if (!isAdmin && userId !== currentUserId) {
@@ -842,14 +1165,14 @@ export async function registerRoutes(
 
   app.post("/api/services", async (req, res, next) => {
     try {
-      const { vendorId, name, type, specialization, description, location, latitude, longitude, contactPhone, contactEmail, priceRange } = req.body;
+      const { vendorId, name, type, specialization, description, location, latitude, longitude, contactPhone, contactEmail, priceRange, priceList } = req.body;
       
       if (!vendorId || !name || !type || !location) {
         return res.status(400).json({ error: 'Missing required fields' });
       }
 
       const service = await storage.createVendorService({
-        vendorId, name, type, specialization, description, location, latitude, longitude, contactPhone, contactEmail, priceRange
+        vendorId, name, type, specialization, description, location, latitude, longitude, contactPhone, contactEmail, priceRange, priceList
       });
 
       // Automatically save as MOAT data for AI training
@@ -1111,7 +1434,7 @@ export async function registerRoutes(
     const { setupKey } = req.body;
     
     // Use a setup key from environment for initial admin setup
-    const validSetupKey = process.env.ADMIN_SETUP_KEY || 'sabiright-admin-setup-2024';
+    const validSetupKey = process.env.ADMIN_SETUP_KEY || 'legal-13d13-admin-setup-2024';
     
     if (setupKey !== validSetupKey) {
       console.log(`Admin setup failed: Invalid key for user ${userId}`);
@@ -1149,22 +1472,45 @@ export async function registerRoutes(
     }
   });
 
-  // Admin: Approve KYC
-  app.post("/api/admin/kyc/:userId/approve", adminAuth, async (req, res, next) => {
+  // Admin: Approve Email Verification
+  app.post("/api/admin/email-verification/:userId/approve", adminAuth, async (req, res, next) => {
     try {
       const { userId } = req.params;
-      await storage.updateUserKYC(userId, 'verified');
+      await storage.updateEmailVerificationStatus(userId, 'verified');
+      
+      // Send notification
+      await storage.sendNotification({
+        userId,
+        type: 'email_verified',
+        title: 'Email Verified',
+        message: 'Your email address has been successfully verified. You now have full access to all features.',
+        templateName: 'email_verified',
+        channels: ['in_app', 'email']
+      });
+
       res.json({ success: true });
     } catch (error) {
       next(error);
     }
   });
 
-  // Admin: Reject KYC
-  app.post("/api/admin/kyc/:userId/reject", adminAuth, async (req, res, next) => {
+  // Admin: Reject Email Verification
+  app.post("/api/admin/email-verification/:userId/reject", adminAuth, async (req, res, next) => {
     try {
       const { userId } = req.params;
-      await storage.updateUserKYC(userId, 'rejected');
+      const { reason } = req.body;
+      await storage.updateEmailVerificationStatus(userId, 'rejected');
+      
+      // Send notification
+      await storage.sendNotification({
+        userId,
+        type: 'email_rejected',
+        title: 'Email Verification Failed',
+        message: `Your email verification was not approved. ${reason ? `Reason: ${reason}` : 'Please try again.'}`,
+        channels: ['in_app', 'email'],
+        data: { reason }
+      });
+
       res.json({ success: true });
     } catch (error) {
       next(error);
@@ -1656,7 +2002,7 @@ export async function registerRoutes(
   app.post("/api/surveys", userAuth, async (req, res, next) => {
     try {
       const { feature, rating, feedback } = req.body;
-      const userId = (req as any).userId;
+      const userId = req.userId;
 
       if (!feature || !rating) {
         return res.status(400).json({ error: "Feature and rating are required" });
@@ -1756,6 +2102,66 @@ export async function registerRoutes(
     }
   });
 
+  // Legal Leads & Case Files
+  app.post("/api/leads", userAuth, async (req, res) => {
+    const { userId, lawyerId, lawyerName, source } = req.body;
+    
+    if (!lawyerId || !lawyerName) {
+      return res.status(400).json({ error: 'Missing required fields' });
+    }
+
+    const lead = await storage.createVendorLead({
+      vendorId: lawyerId,
+      customerId: userId,
+      customerName: req.user?.displayName || 'Anonymous User',
+      customerEmail: req.user?.email || '',
+      serviceType: 'Legal Aid',
+      message: `Lead from SabiRight Civic Chat (${source})`,
+      metadata: { lawyerName }
+    });
+
+    res.json(lead);
+  });
+
+  app.post("/api/case-files", userAuth, upload.single('file'), async (req, res) => {
+    const { userId, lawyerId, chatId } = req.body;
+    const file = req.file;
+
+    if (!file) {
+      return res.status(400).json({ error: 'No file uploaded' });
+    }
+
+    // Save case document to MOAT data for reference/training
+    const caseDoc = await storage.createMoatData({
+      title: `Case File: ${file.originalname}`,
+      content: `User ${userId} submitted a case file for lawyer ${lawyerId || 'any'}. Chat ID: ${chatId || 'none'}. Path: ${file.path}`,
+      category: 'case_documents',
+      source: 'user_submission',
+      metadata: {
+        userId,
+        lawyerId,
+        chatId,
+        originalName: file.originalname,
+        mimeType: file.mimetype,
+        size: file.size,
+        path: file.path
+      }
+    });
+
+    // Also notify the lawyer if specified
+    if (lawyerId) {
+      await storage.createNotification({
+        userId: lawyerId,
+        type: 'case_file_submission',
+        title: 'New Case File Submitted',
+        message: `A user has submitted a pre-vetted case file for your review.`,
+        data: { caseDocId: caseDoc.id, userId, chatId }
+      });
+    }
+
+    res.json({ success: true, fileName: file.originalname, docId: caseDoc.id });
+  });
+
   // Jobs APIs API
   app.get("/api/jobs", async (req, res, next) => {
     try {
@@ -1778,10 +2184,10 @@ export async function registerRoutes(
     }
   });
 
-  app.post("/api/jobs", userAuth, kycVerifiedAuth, async (req, res, next) => {
+  app.post("/api/jobs", userAuth, emailVerifiedAuth, async (req, res, next) => {
     try {
       const { title, company, location, type, workMode, salary, description, contact, postedBy, source, isAiFetched } = req.body;
-      const userId = (req as any).userId;
+      const userId = req.userId;
       
       if (!title || !location) {
         return res.status(400).json({ error: 'Missing required fields' });
@@ -1793,7 +2199,7 @@ export async function registerRoutes(
         location,
         type: type || 'Full-time',
         workMode: workMode || 'Onsite',
-        salary: salary || '',
+        salary: salary || 'To be Negotiated',
         description: description || '',
         contact: contact || '',
         postedBy: postedBy || userId,
@@ -1820,7 +2226,8 @@ export async function registerRoutes(
   app.post("/api/jobs/:jobId/save", userAuth, async (req, res, next) => {
     try {
       const { jobId } = req.params;
-      const userId = (req as any).userId;
+      const userId = req.userId;
+      if (!userId) return res.status(401).json({ error: 'Authentication required' });
 
       await storage.saveJob(userId, jobId);
       res.json({ success: true });
@@ -1833,7 +2240,8 @@ export async function registerRoutes(
   app.delete("/api/jobs/:jobId/save", userAuth, async (req, res, next) => {
     try {
       const { jobId } = req.params;
-      const userId = (req as any).userId;
+      const userId = req.userId;
+      if (!userId) return res.status(401).json({ error: 'Authentication required' });
 
       await storage.unsaveJob(userId, jobId);
       res.json({ success: true });
@@ -1846,7 +2254,8 @@ export async function registerRoutes(
   app.get("/api/jobs/saved/:userId", userAuth, async (req, res, next) => {
     try {
       const { userId } = req.params;
-      const currentUserId = (req as any).userId;
+      const currentUserId = req.userId;
+      if (!currentUserId) return res.status(401).json({ error: 'Authentication required' });
       const isAdmin = await isUserAdmin(currentUserId);
 
       if (!isAdmin && userId !== currentUserId) {
@@ -1864,7 +2273,8 @@ export async function registerRoutes(
   app.get("/api/jobs/saved-ids/:userId", userAuth, async (req, res, next) => {
     try {
       const { userId } = req.params;
-      const currentUserId = (req as any).userId;
+      const currentUserId = req.userId;
+      if (!currentUserId) return res.status(401).json({ error: 'Authentication required' });
       const isAdmin = await isUserAdmin(currentUserId);
 
       if (!isAdmin && userId !== currentUserId) {
@@ -1879,10 +2289,11 @@ export async function registerRoutes(
   });
 
   // Apply to Job
-  app.post("/api/jobs/:jobId/apply", userAuth, kycVerifiedAuth, async (req, res, next) => {
+  app.post("/api/jobs/:jobId/apply", userAuth, emailVerifiedAuth, async (req, res, next) => {
     try {
       const { jobId } = req.params;
-      const userId = (req as any).userId;
+      const userId = req.userId;
+      if (!userId) return res.status(401).json({ error: 'Authentication required' });
 
       const application = await storage.applyToJob(userId, jobId);
       res.json(application);
@@ -1895,7 +2306,8 @@ export async function registerRoutes(
   app.get("/api/jobs/applied/:userId", userAuth, async (req, res, next) => {
     try {
       const { userId } = req.params;
-      const currentUserId = (req as any).userId;
+      const currentUserId = req.userId;
+      if (!currentUserId) return res.status(401).json({ error: 'Authentication required' });
       const isAdmin = await isUserAdmin(currentUserId);
 
       if (!isAdmin && userId !== currentUserId) {
@@ -1913,7 +2325,8 @@ export async function registerRoutes(
   app.get("/api/jobs/applied-ids/:userId", userAuth, async (req, res, next) => {
     try {
       const { userId } = req.params;
-      const currentUserId = (req as any).userId;
+      const currentUserId = req.userId;
+      if (!currentUserId) return res.status(401).json({ error: 'Authentication required' });
       const isAdmin = await isUserAdmin(currentUserId);
 
       if (!isAdmin && userId !== currentUserId) {
@@ -1932,7 +2345,8 @@ export async function registerRoutes(
     try {
       const { jobId } = req.params;
       const { userId, status } = req.body;
-      const currentUserId = (req as any).userId;
+      const currentUserId = req.userId;
+      if (!currentUserId) return res.status(401).json({ error: 'Authentication required' });
       const isAdmin = await isUserAdmin(currentUserId);
 
       // Ideally only the employer or admin can update status.
@@ -1988,7 +2402,7 @@ export async function registerRoutes(
         body: `secret=${secretKey}&response=${token}`
       });
 
-      const data = await response.json();
+      const data = await response.json() as any;
       return data.success;
     } catch (err) {
       console.error('reCAPTCHA verification error:', err);
@@ -1998,7 +2412,7 @@ export async function registerRoutes(
 
   const generateAIResponse = async (prompt: string) => {
     const primaryAISetting = await storage.getAdminSetting('ai_provider');
-    const provider = primaryAISetting?.value || 'google';
+    const provider = (primaryAISetting?.value || 'google').toLowerCase();
 
     if (provider === 'openai') {
       const apiKeySetting = await storage.getAdminSetting('openai_api_key');
@@ -2022,11 +2436,184 @@ export async function registerRoutes(
       });
 
       if (!response.ok) {
+        if (response.status === 429) {
+          const err = new Error('AI service is temporarily busy (rate limit exceeded). Please try again in a few moments.');
+          (err as any).status = 429;
+          throw err;
+        }
         const errorBody = await response.text();
         throw new Error(`OpenAI error: ${response.status} ${errorBody}`);
       }
 
-      const data = await response.json();
+      const data = await response.json() as any;
+      return data?.choices?.[0]?.message?.content || null;
+    } else if (provider === 'anthropic') {
+      const apiKeySetting = await storage.getAdminSetting('anthropic_api_key');
+      const apiKey = apiKeySetting?.value || process.env.ANTHROPIC_API_KEY;
+
+      if (!apiKey) {
+        throw new Error('Anthropic API key not configured');
+      }
+
+      const response = await fetch('https://api.anthropic.com/v1/messages', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          'x-api-key': apiKey,
+          'anthropic-version': '2023-06-01'
+        },
+        body: JSON.stringify({
+          model: 'claude-3-5-sonnet-20240620',
+          max_tokens: 2048,
+          messages: [{ role: 'user', content: prompt }]
+        })
+      });
+
+      if (!response.ok) {
+        const errorBody = await response.text();
+        throw new Error(`Anthropic error: ${response.status} ${errorBody}`);
+      }
+
+      const data = await response.json() as any;
+      return data?.content?.[0]?.text || null;
+    } else if (provider === 'groq') {
+      const apiKeySetting = await storage.getAdminSetting('groq_api_key');
+      const apiKey = apiKeySetting?.value || process.env.GROQ_API_KEY;
+
+      if (!apiKey) {
+        throw new Error('Groq API key not configured');
+      }
+
+      const response = await fetch('https://api.groq.com/openai/v1/chat/completions', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          'Authorization': `Bearer ${apiKey}`
+        },
+        body: JSON.stringify({
+          model: 'llama-3.3-70b-versatile',
+          messages: [{ role: 'user', content: prompt }],
+          temperature: 0.7
+        })
+      });
+
+      if (!response.ok) {
+        const errorBody = await response.text();
+        throw new Error(`Groq error: ${response.status} ${errorBody}`);
+      }
+
+      const data = await response.json() as any;
+      return data?.choices?.[0]?.message?.content || null;
+    } else if (provider === 'deepseek') {
+      const apiKeySetting = await storage.getAdminSetting('deepseek_api_key');
+      const apiKey = apiKeySetting?.value || process.env.DEEPSEEK_API_KEY;
+
+      if (!apiKey) {
+        throw new Error('DeepSeek API key not configured');
+      }
+
+      const response = await fetch('https://api.deepseek.com/chat/completions', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          'Authorization': `Bearer ${apiKey}`
+        },
+        body: JSON.stringify({
+          model: 'deepseek-chat',
+          messages: [{ role: 'user', content: prompt }],
+          temperature: 0.7
+        })
+      });
+
+      if (!response.ok) {
+        const errorBody = await response.text();
+        throw new Error(`DeepSeek error: ${response.status} ${errorBody}`);
+      }
+
+      const data = await response.json() as any;
+      return data?.choices?.[0]?.message?.content || null;
+    } else if (provider === 'openrouter') {
+      const apiKeySetting = await storage.getAdminSetting('openrouter_api_key');
+      const apiKey = apiKeySetting?.value || process.env.OPENROUTER_API_KEY;
+
+      if (!apiKey) {
+        throw new Error('OpenRouter API key not configured');
+      }
+
+      const response = await fetch('https://openrouter.ai/api/v1/chat/completions', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          'Authorization': `Bearer ${apiKey}`,
+          'HTTP-Referer': 'https://sabiright.com',
+          'X-Title': 'SabiRight AI'
+        },
+        body: JSON.stringify({
+          model: 'openrouter/auto',
+          messages: [{ role: 'user', content: prompt }]
+        })
+      });
+
+      if (!response.ok) {
+        const errorBody = await response.text();
+        throw new Error(`OpenRouter error: ${response.status} ${errorBody}`);
+      }
+
+      const data = await response.json() as any;
+      return data?.choices?.[0]?.message?.content || null;
+    } else if (provider === 'perplexity') {
+      const apiKeySetting = await storage.getAdminSetting('perplexity_api_key');
+      const apiKey = apiKeySetting?.value || process.env.PERPLEXITY_API_KEY;
+
+      if (!apiKey) {
+        throw new Error('Perplexity API key not configured');
+      }
+
+      const response = await fetch('https://api.perplexity.ai/chat/completions', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          'Authorization': `Bearer ${apiKey}`
+        },
+        body: JSON.stringify({
+          model: 'llama-3.1-sonar-small-128k-online',
+          messages: [{ role: 'user', content: prompt }]
+        })
+      });
+
+      if (!response.ok) {
+        const errorBody = await response.text();
+        throw new Error(`Perplexity error: ${response.status} ${errorBody}`);
+      }
+
+      const data = await response.json() as any;
+      return data?.choices?.[0]?.message?.content || null;
+    } else if (provider === 'mistral') {
+      const apiKeySetting = await storage.getAdminSetting('mistral_api_key');
+      const apiKey = apiKeySetting?.value || process.env.MISTRAL_API_KEY;
+
+      if (!apiKey) {
+        throw new Error('Mistral API key not configured');
+      }
+
+      const response = await fetch('https://api.mistral.ai/v1/chat/completions', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          'Authorization': `Bearer ${apiKey}`
+        },
+        body: JSON.stringify({
+          model: 'mistral-tiny',
+          messages: [{ role: 'user', content: prompt }]
+        })
+      });
+
+      if (!response.ok) {
+        const errorBody = await response.text();
+        throw new Error(`Mistral error: ${response.status} ${errorBody}`);
+      }
+
+      const data = await response.json() as any;
       return data?.choices?.[0]?.message?.content || null;
     } else {
       // Default to Gemini (google)
@@ -2037,22 +2624,63 @@ export async function registerRoutes(
         throw new Error('Gemini API key not configured');
       }
 
+      // Use gemini-2.0-flash with v1beta endpoint for stability and modern features
       const url = `https://generativelanguage.googleapis.com/v1beta/models/gemini-2.0-flash:generateContent?key=${apiKey}`;
+      
       const response = await fetch(url, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
-          contents: [{ parts: [{ text: prompt }] }]
+          contents: [{
+            parts: [{ text: prompt }]
+          }],
+          // v1beta supports tools and safety settings better
+          safetySettings: [
+            { category: "HARM_CATEGORY_HARASSMENT", threshold: "BLOCK_NONE" },
+            { category: "HARM_CATEGORY_HATE_SPEECH", threshold: "BLOCK_NONE" },
+            { category: "HARM_CATEGORY_SEXUALLY_EXPLICIT", threshold: "BLOCK_NONE" },
+            { category: "HARM_CATEGORY_DANGEROUS_CONTENT", threshold: "BLOCK_NONE" }
+          ],
+          generationConfig: {
+            temperature: 0.7,
+            topK: 40,
+            topP: 0.95,
+            maxOutputTokens: 2048,
+          }
         })
       });
 
       if (!response.ok) {
         const errorBody = await response.text();
+        console.error(`Gemini API Error (${response.status}):`, errorBody);
+        
+        if (response.status === 429) {
+          const err = new Error('AI Service Busy. Please try again in a moment.');
+          (err as any).status = 429;
+          throw err;
+        }
+        if (response.status === 503) {
+          const err = new Error('AI service is temporarily unavailable. Please try again in a few moments.');
+          (err as any).status = 503;
+          throw err;
+        }
         throw new Error(`Gemini error: ${response.status} ${errorBody}`);
       }
 
-      const data = await response.json();
-      return data?.candidates?.[0]?.content?.parts?.[0]?.text || null;
+      const data = await response.json() as any;
+      
+      // Handle the case where the response might be blocked or empty
+      if (data.promptFeedback?.blockReason) {
+        return "⚠️ My response was blocked by safety filters.";
+      }
+
+      const text = data?.candidates?.[0]?.content?.parts?.[0]?.text;
+      if (!text) {
+        console.warn('Empty Gemini response data:', JSON.stringify(data));
+        return "I couldn't generate a response. Please try again.";
+      }
+      
+      return text;
     }
   };
 
@@ -2069,6 +2697,9 @@ export async function registerRoutes(
       res.json({ response: text });
     } catch (err: any) {
       console.error('[AI Generate] Error:', err.message);
+      if (err.status === 429) {
+        return res.status(429).json({ error: err.message });
+      }
       if (err.message.includes('not configured')) {
         return res.status(503).json({ error: err.message });
       }
@@ -2079,10 +2710,23 @@ export async function registerRoutes(
   // AI Civic Chat API (SabiRight Citizen Education)
   app.post("/api/ai/civic/chat", userAuth, async (req, res, next) => {
     try {
-      const { userId, message, city, isUrgent, lat, lng, chatId } = req.body;
+      const { message, city, isUrgent, lat, lng, chatId } = req.body;
+      const userId = req.userId;
       
       if (!userId || !message) {
         return res.status(400).json({ error: 'User ID and message required' });
+      }
+
+      // Check if this is the first message in the session for the greeting
+      let isFirstMessage = true;
+      let chatHistory = "";
+      if (chatId) {
+        const existingMessages = await storage.getSabiGuardMessages(chatId);
+        if (existingMessages && existingMessages.length > 0) {
+          isFirstMessage = false;
+          // Build chat history for AI context
+          chatHistory = existingMessages.map((m: any) => `${m.role.toUpperCase()}: ${m.content}`).join('\n');
+        }
       }
 
       // Check storage limits
@@ -2099,7 +2743,7 @@ export async function registerRoutes(
       }
 
       const credits = await storage.getUserCredits(userId);
-      const availableCredits = (credits?.totalCredits || 0) - (credits?.usedCredits || 0);
+      const availableCredits = credits?.totalCredits ?? 0;
       
       if (availableCredits < 1) {
         return res.status(402).json({ error: 'Insufficient credits' });
@@ -2133,35 +2777,134 @@ export async function registerRoutes(
       const jobsMoat = await storage.getMoatData('jobs');
       const locationMoat = city ? await storage.getMoatData(city.toLowerCase()) : [];
       
-      // Combine and limit context size to avoid token limits
-      const moatContext = [...constitutionData, ...police_actData, ...forumMoat, ...marketplaceMoat, ...eventsMoat, ...jobsMoat, ...locationMoat]
-        .slice(0, 50) // Limit to top 50 most recent relevant items
-        .map(d => `Title: ${d.title || 'Untitled'}\nContent: ${d.content}\nSource: ${d.source || 'Unknown'}`)
-        .join('\n\n');
+      // Enhanced keyword-based relevance filtering for MOAT data
+      const queryKeywords = message.toLowerCase().split(/\s+/).filter((w: string) => w.length > 3);
+      
+      const caseDocsMoat = await storage.getMoatData('case_documents');
+      const electricityMoat = await storage.getMoatData('electricity'); // Added for electricity queries
+      const tenancyMoat = await storage.getMoatData('tenancy'); // Added for tenancy queries
+      
+      const allMoatData = [
+        ...constitutionData, 
+        ...police_actData, 
+        ...forumMoat, 
+        ...marketplaceMoat, 
+        ...eventsMoat, 
+        ...jobsMoat, 
+        ...locationMoat, 
+        ...caseDocsMoat,
+        ...electricityMoat,
+        ...tenancyMoat
+      ];
+      
+      // Filter MOAT data strictly to avoid irrelevant content like ads/events unless requested
+      const isLegalQuery = message.toLowerCase().match(/(law|bail|police|rights|court|legal|constitution|arrest|fine|crime|case|document|affidavit|petition|electricity|meter|landlord|tenant|rent|bill)/);
+      const isMarketQuery = message.toLowerCase().match(/(buy|sell|price|market|vendor|product|cost)/);
+      
+      let relevantMoat = allMoatData.filter(d => {
+        const content = d.content.toLowerCase();
+        const title = (d.title || '').toLowerCase();
+        
+        // Match keywords
+        const hasKeyword = queryKeywords.some((kw: string) => content.includes(kw) || title.includes(kw));
+        
+        // If it's a legal or utility query, prioritize relevant categories
+        if (isLegalQuery && (d.category === 'case_documents' || d.category === 'constitution' || d.category === 'police_act' || d.category === 'electricity' || d.category === 'tenancy')) {
+          return hasKeyword || content.includes('law') || content.includes('legal') || content.includes('right');
+        }
 
-      const systemPrompt = isUrgent
-        ? `SabiRight CITIZEN EDUCATION AGENT (URGENT MODE). User Location: ${city || 'Nigeria'}.
-           You are a lawful civic guidance tool providing "Legal First Aid". The user is in a stressful situation (e.g., police stop, dispute).
-           1. First, calmly advise the user to stay polite, lawful, and composed.
-           2. Provide immediate, law-based "first aid" guidance to reduce tension and misinformation:
-           ${moatContext}
-           3. Cite specific Nigerian laws (1999 Constitution, Police Act 2020) to ensure transparency and mutual respect.
-           4. Do NOT replace a lawyer. Focus on immediate steps to handle the situation lawfully.
-           5. Use clear, calm, and professional language.
-           ${nearbyVendors ? `6. If they need professional legal help after this immediate guidance, suggest these verified experts nearby:\n${nearbyVendors}` : ''}`
-        : `You are the SabiRight Citizen Education Agent for Nigeria. User Location: ${city || 'Nigeria'}.
-           1. Your goal is to educate citizens on their rights and responsibilities calmly and lawfully using official data:
-           ${moatContext}
-           2. Provide clear, structured, and educational summaries.
-           3. If the user asks about everyday civic situations (bail, arrests, tenancy, traffic), offer "Legal First Aid" guidance based on the Police Act and Constitution.
-           4. Always emphasize lawful behavior and mutual respect between citizens and officials.
-           5. Use Markdown for formatting (bolding key terms).
-           6. Be professional, educational, and unifying.
-           ${nearbyVendors ? `7. If they need further professional help, suggest these verified experts from Sabimarket:\n${nearbyVendors}` : ''}`;
+        // If it's a legal query, ignore marketplace/events/jobs unless they contain the keyword
+        if (isLegalQuery && (d.category === 'marketplace' || d.category === 'events' || d.category === 'jobs')) {
+          return hasKeyword && (content.includes('law') || content.includes('legal'));
+        }
+        
+        return hasKeyword;
+      });
 
-      const fullPrompt = `${systemPrompt}\n\nUser Question: ${message}`;
+      // Optimization: If we have high-quality MOAT data, we can skip or reduce internet search
+      const hasStrongMoatData = relevantMoat.length >= 3; // Increased slightly for better local context
+      
+      // Only search internet if absolutely necessary or explicitly requested
+      const needsInternetSearch = (message.toLowerCase().includes('verify') || 
+                                  message.toLowerCase().includes('update') || 
+                                  message.toLowerCase().includes('latest') ||
+                                  (!hasStrongMoatData && isLegalQuery)) && 
+                                  !message.toLowerCase().includes('quick'); // Add "quick" keyword to skip search
+      
+      let internetContext = "";
+      if (needsInternetSearch) {
+        // Only call internet if we don't have enough local knowledge for legal queries
+        // or if explicitly requested. This saves API calls/quota.
+        try {
+          const searchKey = await storage.getAdminSetting('tavily_api_key');
+          if (searchKey?.value) {
+            const searchRes = await fetch('https://api.tavily.com/search', {
+              method: 'POST',
+              headers: { 'Content-Type': 'application/json' },
+              body: JSON.stringify({
+                api_key: searchKey.value,
+                query: message,
+                search_depth: "basic",
+                max_results: 2 // Reduced from 3 for faster response
+              })
+            });
+            if (searchRes.ok) {
+              const searchData = await searchRes.json() as any;
+              internetContext = searchData.results.map((r: any) => `Source: ${r.url}\nTitle: ${r.title}\nContent: ${r.content}`).join('\n\n');
+            }
+          } else {
+            // Fallback to DuckDuckGo (Free, no key)
+            const ddgRes = await fetch(`https://api.duckduckgo.com/?q=${encodeURIComponent(message)}&format=json&no_html=1&skip_disambig=1`);
+            if (ddgRes.ok) {
+              const ddgData = await ddgRes.json() as any;
+              if (ddgData.AbstractText) {
+                internetContext = `Source: DuckDuckGo\nContent: ${ddgData.AbstractText}`;
+              }
+            }
+          }
+        } catch (searchErr) {
+          console.error('[Civic Chat] Internet search failed:', searchErr);
+        }
+      }
 
-      const text = await generateAIResponse(fullPrompt);
+      // Combine MOAT and Internet context
+      const combinedContext = [
+        relevantMoat.length > 0 ? "--- RELEVANT MOAT DATA ---" : "",
+        relevantMoat.slice(0, 10).map(d => `Title: ${d.title || 'Untitled'}\nContent: ${d.content}\nSource: ${d.source || 'Unknown'}`).join('\n\n'),
+        internetContext ? "--- INTERNET SEARCH RESULTS ---" : "",
+        internetContext
+      ].filter(Boolean).join('\n\n');
+
+      const systemPrompt = `You are the SabiRight AI Citizen Education Agent for Nigeria. 
+        User Location: ${city || 'Nigeria'}.
+        
+        CRITICAL ROLE: Educate citizens on their rights and responsibilities in a concise, lawful, and highly precise manner.
+        
+        STRICT RESPONSE GUIDELINES:
+        1. BE CONCISE: Provide short, punchy summaries. Avoid bulky paragraphs. Use bullet points for clarity.
+        2. DIRECT LEGAL CITATIONS: You MUST cite specific Sections and Subsections of the 1999 Constitution or relevant Acts (e.g., "Section 35(1) of the 1999 Constitution"). Do NOT generalize.
+        3. NO HALLUCINATIONS: Be accurate about legal definitions. (e.g., Teachers are NOT typically "Public Officers" under the Code of Conduct unless employed by the State/Federal Civil Service commission).
+        4. VENDOR REFERRALS: If the user query involves legal issues, property, or taxes, you MUST explicitly refer them to the nearby professionals listed below.
+        5. TONE: Professional, authoritative, yet helpful.
+        
+        CONTEXT FOR THIS QUERY:
+        ${combinedContext || 'No specific local context found. Use general knowledge of Nigerian law.'}
+        
+        NEARBY PROFESSIONALS (REFER USER TO THESE IF NEEDED):
+        ${nearbyVendors || 'No verified lawyers currently available in this immediate area.'}`;
+
+      const fullPrompt = `System: ${systemPrompt}\n\nUser Question: ${message}\n\nAssistant Response (Short, precise, with citations):`;
+
+      let text;
+      try {
+        text = await generateAIResponse(fullPrompt);
+      } catch (aiErr: any) {
+        if (aiErr.status === 429) {
+          return res.status(429).json({ error: aiErr.message });
+        }
+        throw aiErr;
+      }
+
       if (!text) {
         return res.status(500).json({ error: 'Empty AI response' });
       }
@@ -2173,7 +2916,9 @@ export async function registerRoutes(
         
         // Track storage used (rough estimate: characters * 1 byte)
         const bytesUsed = (message.length + text.length);
-        await storage.updateChatStorageUsed(userId, bytesUsed);
+        if (userId) {
+          await storage.updateChatStorageUsed(userId, bytesUsed);
+        }
 
         // MOAT Integration: Use chat data for threat analysis
         if (message.length > 50) {
@@ -2189,21 +2934,31 @@ export async function registerRoutes(
       await storage.deductCredits(userId, 1, 'civic_guard', `Legal AI query: ${message.substring(0, 50)}`);
       res.json({ response: text });
     } catch (err: any) {
-      console.error('[Civic Chat] Error:', err.message);
-      next(err);
+      console.error('[Civic Chat] Error:', err.message, err.stack);
+      if (err.status === 429) {
+        return res.status(429).json({ error: err.message });
+      }
+      if (err.status === 503) {
+        return res.status(503).json({ error: err.message });
+      }
+      res.status(500).json({ 
+        error: 'Internal server error processing chat',
+        message: err.message 
+      });
     }
   });
 
   // AI Job Search API
-  app.post("/api/ai/jobs/search", async (req, res) => {
-    const { userId, role, location, employmentType, workMode } = req.body;
+  app.post("/api/ai/jobs/search", userAuth, async (req, res) => {
+    const { role, location, employmentType, workMode } = req.body;
+    const userId = req.userId;
     
     if (!userId || !role) {
       return res.status(400).json({ error: 'User ID and role required' });
     }
 
     const credits = await storage.getUserCredits(userId);
-    if (!credits || ((credits.totalCredits || 0) - (credits.usedCredits || 0)) < 1) {
+      if (!credits || (credits.totalCredits ?? 0) < 1) {
       return res.status(402).json({ error: 'Insufficient credits' });
     }
 
@@ -2211,14 +2966,16 @@ export async function registerRoutes(
       Act as a Job Search API for Nigeria.
       Criteria: Role: ${role}, Location: ${location || 'Lagos'}${employmentType ? `, Employment: ${employmentType}` : ''}${workMode ? `, Work Mode: ${workMode}` : ''}.
       
-      Task: List 3 highly realistic job opportunities matching these criteria.
+      Task: List 3 highly realistic and CURRENT job opportunities matching these criteria.
       
       CRITICAL INSTRUCTIONS:
-      1. The 'description' must be comprehensive (at least 100 words). Format using Markdown.
-      2. The 'contact' field must be a URL or email.
-      3. The 'source' field must be the name of an external job platform (e.g., LinkedIn).
-      4. The 'type' must be either "Full-time" or "Part-time".
-      5. The 'workMode' must be either "Remote", "Onsite", or "Hybrid".
+      1. Sources MUST strictly be from these Nigerian Job portals: "Jobberman", "HotNigerianJobs", "Indeed", "MyJobMag", "LinkedIn", or "NG Careers".
+      2. If salary is not explicitly stated in the listing, set "salary" to "To be Negotiated".
+      3. The 'description' must be comprehensive (at least 100 words). Format using Markdown.
+      4. The 'contact' field must be a valid URL to the job listing or a professional application email.
+      5. The 'type' must be either "Full-time" or "Part-time".
+      6. The 'workMode' must be either "Remote", "Onsite", or "Hybrid".
+      7. Ensure NO hallucinations. All companies and jobs must be real.
       
       Output: Return ONLY a JSON Array of objects. No markdown blocks.
       Schema: [{"title": "...", "company": "...", "location": "...", "type": "Full-time", "workMode": "Remote", "salary": "...", "contact": "...", "description": "...", "source": "..."}]
@@ -2238,17 +2995,48 @@ export async function registerRoutes(
         return res.status(500).json({ error: 'Failed to parse AI response' });
       }
 
-      const jobs = JSON.parse(jsonMatch[0]);
+      const rawJobs = JSON.parse(jsonMatch[0]);
       const savedJobs = [];
+      const allowedSources = ["Jobberman", "HotNigerianJobs", "Indeed", "MyJobMag", "LinkedIn", "NG Careers"];
 
-      for (const job of jobs) {
+      for (const job of rawJobs) {
+        // Validation: Ensure source is compliant and fields are realistic
+        if (!job.title || !job.company || !job.contact) continue;
+        
+        // Normalize source and check if it's allowed
+        const jobSource = job.source || 'AI Generated';
+        const isCompliant = allowedSources.some(s => jobSource.toLowerCase().includes(s.toLowerCase()));
+        
+        if (!isCompliant) {
+          continue;
+        }
+
+        // Ensure salary is set correctly
+        if (!job.salary || job.salary.toLowerCase().includes('not stated') || job.salary.toLowerCase().includes('negotiable')) {
+          job.salary = "To be Negotiated";
+        }
+
+        // Create in both general jobs and generated jobs for visibility
         const savedJob = await storage.createJob({
           ...job,
           postedBy: userId,
-          source: job.source || 'AI Generated',
+          source: jobSource,
           isAiFetched: true
         });
+
+        // Also save to generated jobs collection for the "AI Generated" tab
+        // Use the same ID as the general job to avoid confusion
+        await storage.createGeneratedJob(userId, {
+          ...job,
+          id: savedJob.id,
+          source: jobSource
+        });
+
         savedJobs.push(savedJob);
+      }
+
+      if (savedJobs.length === 0) {
+        return res.status(500).json({ error: 'No valid job opportunities found. Please try a different role or location.' });
       }
 
       await storage.deductCredits(userId, 1, 'job_search', `AI job search: ${role} in ${location}`);
@@ -2327,19 +3115,34 @@ export async function registerRoutes(
   });
 
   // Payments
-  app.get("/api/payments", userAuth, async (req, res) => {
+  app.get("/api/payments", async (req, res) => {
     const { userId } = req.query;
-    const currentUserId = (req as any).userId;
-    const isAdmin = await isUserAdmin(currentUserId);
+    const authHeader = req.headers.authorization;
+    
+    let currentUserId: string | undefined;
+    let isAdmin = false;
 
-    // Security check: Only admins can view other users' payments
-    if (!isAdmin && userId && userId !== currentUserId) {
-      return res.status(403).json({ error: 'Access denied. You can only view your own payments.' });
+    if (authHeader?.startsWith('Bearer ')) {
+      const token = authHeader.substring(7);
+      const result = await verifyUserToken(token);
+      if (result.valid && result.userId) {
+        currentUserId = result.userId;
+        isAdmin = await isUserAdmin(currentUserId);
+      }
     }
 
-    // If not admin and no userId provided, default to current user
-    const targetUserId = isAdmin ? (userId as string | undefined) : currentUserId;
+    // Security check: If not admin and trying to view another user's payments
+    if (userId && userId !== currentUserId && !isAdmin) {
+      return res.status(401).json({ error: 'Authentication required to view these payments' });
+    }
+
+    // Default to current user if no userId provided and not admin
+    const targetUserId = (isAdmin && userId) ? (userId as string) : (userId as string || currentUserId);
     
+    if (!targetUserId) {
+      return res.status(400).json({ error: 'User ID is required' });
+    }
+
     const payments = await storage.getPayments(targetUserId);
     res.json(payments);
   });
@@ -2556,17 +3359,18 @@ export async function registerRoutes(
         return res.status(400).json({ error: 'No signature provided' });
       }
 
-      // Get Paystack settings
-      const paystackSecretKey = await storage.getAdminSetting('paystack_secret_key');
+      // Get Paystack settings from paymentMethods
+      const paymentMethods = await storage.getPaymentMethods();
+      const paystackMethod = paymentMethods.find((m: any) => m.type === 'paystack' && m.active);
       
-      if (!paystackSecretKey?.value) {
-        return res.status(503).json({ error: 'Paystack not configured' });
+      if (!paystackMethod?.secretKey) {
+        return res.status(503).json({ error: 'Paystack not configured or inactive' });
       }
 
       // Initialize Paystack service
       const paystack = new PaystackService({
-        secretKey: paystackSecretKey.value,
-        publicKey: '' // Not needed for webhook verification
+        secretKey: paystackMethod.secretKey,
+        publicKey: paystackMethod.publicKey || ''
       });
 
       // Verify webhook signature
@@ -2582,22 +3386,39 @@ export async function registerRoutes(
       // Handle different event types
       if (event.event === 'charge.success') {
         const { reference, status, amount, metadata } = event.data;
-        const { paymentId, userId, type, credits, planId } = metadata;
+        const { paymentId, userId, type, credits, planId } = metadata || {};
 
-        if (status === 'success') {
+        if (status === 'success' && userId) {
+          // Find payment by ID or reference
+          let payment = null;
+          if (paymentId) {
+            payment = await storage.getPayment(paymentId);
+          }
+          
+          if (!payment) {
+            const payments = await storage.getPayments();
+            payment = payments.find((p: any) => p.providerRef === reference || p.metadata?.reference === reference);
+          }
+
+          if (payment && payment.status === 'completed') {
+            return res.json({ success: true, message: 'Payment already processed' });
+          }
+
           // Update payment status
-          await storage.updatePayment(paymentId, {
-            status: 'completed',
-            providerRef: reference
-          });
+          if (paymentId) {
+            await storage.updatePayment(paymentId, {
+              status: 'completed',
+              providerRef: reference
+            });
+          }
 
           // Process based on type
-          const amountInNaira = amount / 100; // Convert from kobo
+          const amountInNaira = (event.data.amount as number) / 100; // Convert from kobo
           
           if (type === 'wallet_topup') {
             await storage.topUpWallet(userId, amountInNaira, reference, 'Paystack payment');
           } else if (type === 'credit_purchase' && credits) {
-            await storage.addCredits(userId, parseInt(String(credits)), `Paystack purchase (webhook): ${paymentId}`);
+            await storage.addCredits(userId, parseInt(String(credits)), `Paystack purchase (webhook): ${paymentId || reference}`);
           } else if (type === 'subscription' && planId) {
             await storage.createSubscription({
               userId,
@@ -2624,22 +3445,64 @@ export async function registerRoutes(
         return res.status(400).json({ error: 'Reference required' });
       }
 
-      // Get Paystack settings
-      const paystackPublicKey = await storage.getAdminSetting('paystack_public_key');
-      const paystackSecretKey = await storage.getAdminSetting('paystack_secret_key');
+      // Get Paystack settings from paymentMethods
+      const paymentMethods = await storage.getPaymentMethods();
+      const paystackMethod = paymentMethods.find((m: any) => m.type === 'paystack' && m.active);
       
-      if (!paystackSecretKey?.value || !paystackPublicKey?.value) {
-        return res.status(503).json({ error: 'Paystack not configured' });
+      if (!paystackMethod?.secretKey || !paystackMethod?.publicKey) {
+        return res.status(503).json({ error: 'Paystack not configured or inactive' });
       }
 
       // Initialize Paystack service
       const paystack = new PaystackService({
-        secretKey: paystackSecretKey.value,
-        publicKey: paystackPublicKey.value
+        secretKey: paystackMethod.secretKey,
+        publicKey: paystackMethod.publicKey
       });
 
       // Verify payment
       const verification = await paystack.verifyPayment(reference);
+
+      // Process payment if successful
+      if (verification.status && verification.data.status === 'success') {
+        const { paymentId, userId, type, credits, planId } = verification.data.metadata || {};
+
+        if (userId) {
+          // Find payment by ID or reference
+          let payment = null;
+          if (paymentId) {
+            payment = await storage.getPayment(paymentId);
+          }
+          
+          if (!payment) {
+            const payments = await storage.getPayments();
+            payment = payments.find((p: any) => p.providerRef === reference || p.metadata?.reference === reference);
+          }
+          
+          if (payment && payment.status !== 'completed') {
+            // Update payment status
+            await storage.updatePayment(payment.id, {
+              status: 'completed',
+              providerRef: verification.data.reference
+            });
+
+            // Process based on type
+            const amount = verification.data.amount / 100; // Convert from kobo
+            
+            if (type === 'wallet_topup') {
+              await storage.topUpWallet(userId, amount, verification.data.reference, 'Paystack payment (verified)');
+            } else if (type === 'credit_purchase' && credits) {
+              await storage.addCredits(userId, parseInt(String(credits)), `Paystack purchase (verified): ${payment.id}`);
+            } else if (type === 'subscription' && planId) {
+              await storage.createSubscription({
+                userId,
+                planId,
+                status: 'active',
+                startDate: new Date().toISOString()
+              });
+            }
+          }
+        }
+      }
 
       res.json(verification);
     } catch (error) {
@@ -2672,8 +3535,6 @@ export async function registerRoutes(
         return res.status(401).json({ error: 'Invalid webhook signature' });
       }
 
-      console.log('Flutterwave webhook signature verified successfully');
-
       const event = req.body;
 
       // Handle successful payment
@@ -2693,7 +3554,6 @@ export async function registerRoutes(
 
           // Idempotency check - prevent duplicate processing
           if (payment.status === 'completed') {
-            console.log('Payment already processed:', payment.id);
             return res.json({ success: true, message: 'Payment already processed' });
           }
 
@@ -2707,13 +3567,6 @@ export async function registerRoutes(
             return res.status(400).json({ error: 'Amount mismatch' });
           }
 
-          console.log('Processing payment:', {
-            paymentId: payment.id,
-            userId,
-            amount,
-            type
-          });
-
           // Update payment status
           await storage.updatePayment(payment.id, {
             status: 'completed',
@@ -2723,10 +3576,8 @@ export async function registerRoutes(
           // Process based on type
           if (type === 'wallet_topup') {
             await storage.topUpWallet(userId, amount, tx_ref, 'Flutterwave payment');
-            console.log('Wallet topped up:', { userId, amount });
           } else if (type === 'credit_purchase' && credits) {
             await storage.addCredits(userId, parseInt(String(credits)), `Flutterwave webhook purchase: ${payment.id}`);
-            console.log('Credits added via webhook:', { userId, credits });
           } else if (type === 'subscription' && planId) {
             await storage.createSubscription({
               userId,
@@ -2734,7 +3585,6 @@ export async function registerRoutes(
               status: 'active',
               startDate: new Date().toISOString()
             });
-            console.log('Subscription created:', { userId, planId });
           }
         }
       }
@@ -2774,8 +3624,8 @@ export async function registerRoutes(
         }
       );
 
-      const data = await response.json();
-
+      const data = await response.json() as any;
+      
       if (data.status === 'success' && data.data.status === 'successful') {
         const { tx_ref, amount, customer, meta } = data.data;
         const { userId, type, credits, planId } = meta || {};
@@ -2792,7 +3642,6 @@ export async function registerRoutes(
 
           // Idempotency check
           if (payment.status === 'completed') {
-            console.log('Payment already verified and processed:', payment.id);
             return res.json({ status: 'success', message: 'Payment already processed', data: data.data });
           }
 
@@ -2806,14 +3655,6 @@ export async function registerRoutes(
             return res.status(400).json({ error: 'Amount mismatch' });
           }
 
-          console.log('Verifying and processing payment:', {
-            paymentId: payment.id,
-            userId,
-            amount,
-            type,
-            tx_ref
-          });
-
           // Update payment status
           await storage.updatePayment(payment.id, {
             status: 'completed',
@@ -2823,10 +3664,8 @@ export async function registerRoutes(
           // Process based on type
           if (type === 'wallet_topup') {
             await storage.topUpWallet(userId, amount, tx_ref, 'Flutterwave payment');
-            console.log('Wallet topped up via verification:', { userId, amount });
           } else if (type === 'credit_purchase' && credits) {
             await storage.addCredits(userId, parseInt(String(credits)), `Flutterwave purchase: ${payment.id}`);
-            console.log('Credits added via verification:', { userId, credits });
           } else if (type === 'subscription' && planId) {
             await storage.createSubscription({
               userId,
@@ -2834,7 +3673,6 @@ export async function registerRoutes(
               status: 'active',
               startDate: new Date().toISOString()
             });
-            console.log('Subscription created via verification:', { userId, planId });
           }
         }
 
@@ -2906,7 +3744,7 @@ export async function registerRoutes(
       const { paymentId } = req.params;
       
       // Get payment details
-      const payment = await storage.getPaymentById(paymentId);
+      const payment = await storage.getPayment(paymentId);
       if (!payment) {
         return res.status(404).json({ error: 'Payment not found' });
       }
@@ -2933,7 +3771,8 @@ export async function registerRoutes(
           type: 'payment_approved',
           title: 'Payment Approved',
           message: `Your wallet top-up of ${payment.currency || 'NGN'} ${payment.amount.toLocaleString()} has been approved and credited to your wallet.`,
-          data: { paymentId, amount: payment.amount, type: payment.type }
+          data: { paymentId, amount: payment.amount, type: payment.type },
+          channels: ['in_app', 'email']
         });
       } else if (payment.type === 'credit_purchase' && payment.metadata && (payment.metadata as any)?.credits) {
         const credits = parseInt(String((payment.metadata as any).credits));
@@ -2945,7 +3784,8 @@ export async function registerRoutes(
           type: 'credits_added',
           title: 'Credits Added',
           message: `${credits} credits have been added to your account. Your payment of ${payment.currency || 'NGN'} ${parseFloat(String(payment.amount)).toLocaleString()} has been approved.`,
-          data: { paymentId, credits, amount: payment.amount }
+          data: { paymentId, credits, amount: payment.amount },
+          channels: ['in_app', 'email']
         });
       } else if (payment.type === 'subscription' && payment.metadata && (payment.metadata as any)?.planId) {
         const planId = (payment.metadata as any).planId;
@@ -2962,7 +3802,8 @@ export async function registerRoutes(
           type: 'subscription_activated',
           title: 'Subscription Activated',
           message: `Your subscription to plan ${planId} has been activated. Your payment of ${payment.currency || 'NGN'} ${parseFloat(String(payment.amount)).toLocaleString()} has been approved.`,
-          data: { paymentId, planId, amount: payment.amount }
+          data: { paymentId, planId, amount: payment.amount },
+          channels: ['in_app', 'email']
         });
       }
       
@@ -2979,7 +3820,7 @@ export async function registerRoutes(
       const { reason } = req.body;
       
       // Get payment details
-      const payment = await storage.getPaymentById(paymentId);
+      const payment = await storage.getPayment(paymentId);
       if (!payment) {
         return res.status(404).json({ error: 'Payment not found' });
       }
@@ -3002,7 +3843,8 @@ export async function registerRoutes(
         type: 'payment_rejected',
         title: 'Payment Rejected',
         message: `Your payment of ${payment.currency || 'NGN'} ${payment.amount.toLocaleString()} has been rejected. ${reason ? `Reason: ${reason}` : 'Please contact support for more information.'}`,
-        data: { paymentId, amount: payment.amount, reason }
+        data: { paymentId, amount: payment.amount, reason },
+        channels: ['in_app', 'email']
       });
       
       res.json({ success: true, message: 'Payment rejected' });
@@ -3057,9 +3899,9 @@ export async function registerRoutes(
     }
   });
 
-  app.post("/api/forum/posts", userAuth, kycVerifiedAuth, async (req, res, next) => {
+  app.post("/api/forum/posts", userAuth, emailVerifiedAuth, async (req, res, next) => {
     const { content, city, author } = req.body;
-    const userId = (req as any).userId;
+    const userId = req.userId;
     
     if (!content) {
       return res.status(400).json({ error: 'Content required' });
@@ -3100,7 +3942,7 @@ export async function registerRoutes(
   app.post("/api/forum/posts/:postId/flag", userAuth, async (req, res, next) => {
     try {
       const { postId } = req.params;
-      const userId = (req as any).userId;
+      const userId = req.userId;
       
       const postData = await storage.getForumPost(postId);
       if (!postData) {
@@ -3136,7 +3978,7 @@ export async function registerRoutes(
       // Notify the reporter
       try {
         await storage.sendNotification({
-          userId: userId,
+          userId: userId!,
           type: 'forum_report_received',
           title: 'Report Received',
           message: 'Thank you for reporting this post. Our team will review it.',
@@ -3176,11 +4018,11 @@ export async function registerRoutes(
     }
   });
 
-  app.post("/api/forum/posts/:postId/comments", userAuth, kycVerifiedAuth, async (req, res, next) => {
+  app.post("/api/forum/posts/:postId/comments", userAuth, emailVerifiedAuth, async (req, res, next) => {
     try {
       const { postId } = req.params;
       const { text, author, userId } = req.body;
-      const currentUserId = (req as any).userId;
+      const currentUserId = req.userId;
 
       if (userId !== currentUserId) {
         return res.status(403).json({ error: 'Unauthorized' });
@@ -3207,8 +4049,8 @@ export async function registerRoutes(
   app.delete("/api/forum/posts/:postId/comments/:commentId", userAuth, async (req, res, next) => {
     try {
       const { postId, commentId } = req.params;
-      const currentUserId = (req as any).userId;
-      const isAdmin = await isUserAdmin(currentUserId);
+      const currentUserId = req.userId;
+      const isAdmin = await isUserAdmin(currentUserId!);
 
       const post = await storage.getForumPost(postId);
       if (!post) return res.status(404).json({ error: 'Post not found' });
@@ -3231,13 +4073,13 @@ export async function registerRoutes(
     try {
       const { postId } = req.params;
       const { type } = req.body; // 'up' | 'down'
-      const userId = (req as any).userId;
+      const userId = req.userId;
 
       if (!['up', 'down'].includes(type)) {
         return res.status(400).json({ error: 'Invalid vote type' });
       }
 
-      await storage.voteForumPost(postId, userId, type);
+      await storage.voteForumPost(postId, userId!, type);
       res.json({ success: true });
     } catch (error) {
       next(error);
@@ -3247,9 +4089,9 @@ export async function registerRoutes(
   app.post("/api/forum/posts/:postId/comments/:commentId/vote", userAuth, async (req, res, next) => {
     try {
       const { postId, commentId } = req.params;
-      const userId = (req as any).userId;
+      const userId = req.userId;
 
-      await storage.voteForumComment(postId, commentId, userId);
+      await storage.voteForumComment(postId, commentId, userId!);
       res.json({ success: true });
     } catch (error) {
       next(error);
@@ -3271,7 +4113,7 @@ export async function registerRoutes(
         flagCount: 0,
         flaggedBy: [],
         reinstatedAt: new Date(),
-        reinstatedBy: (req as any).userId
+        reinstatedBy: req.userId
       });
 
       // Notify the author that their post was reinstated
@@ -3474,17 +4316,17 @@ export async function registerRoutes(
 
       const result = await storage.validateCoupon(code);
       
-      if (!result.valid) {
-        return res.status(400).json({ valid: false, error: result.error });
+      if (!result.valid || !result.coupon) {
+        return res.status(400).json({ valid: false, error: result.error || 'Invalid coupon' });
       }
 
       res.json({
         valid: true,
         coupon: {
-          id: result.coupon!.id,
-          code: result.coupon!.code,
-          discountType: result.coupon!.discountType,
-          discountValue: result.coupon!.discountValue
+          id: result.coupon.id,
+          code: result.coupon.code,
+          discountType: result.coupon.discountType,
+          discountValue: result.coupon.discountValue
         }
       });
     } catch (error) {
@@ -3680,8 +4522,12 @@ export async function registerRoutes(
     try {
       const { id } = req.params;
       const { amount } = req.body;
-      const userId = (req as any).userId;
-      const booking = (req as any).booking;
+      const userId = req.userId;
+      const booking = req.booking;
+      
+      if (!userId || !booking) {
+        return res.status(401).json({ error: 'Authentication required or booking not found' });
+      }
       
       if (!amount) {
         return res.status(400).json({ error: 'amount is required' });
@@ -3706,8 +4552,12 @@ export async function registerRoutes(
   app.post("/api/bookings/:id/milestones/:milestoneId/complete", bookingParticipantAuth, async (req, res, next) => {
     try {
       const { id, milestoneId } = req.params;
-      const userId = (req as any).userId;
-      const booking = (req as any).booking;
+      const userId = req.userId;
+      const booking = req.booking;
+
+      if (!userId || !booking) {
+        return res.status(401).json({ error: 'Authentication required or booking not found' });
+      }
 
       if (booking.vendorId !== userId) {
         return res.status(403).json({ error: 'Only the vendor can mark milestones as completed' });
@@ -3730,8 +4580,12 @@ export async function registerRoutes(
   app.post("/api/bookings/:id/milestones/:milestoneId/release", bookingParticipantAuth, async (req, res, next) => {
     try {
       const { id, milestoneId } = req.params;
-      const userId = (req as any).userId;
-      const booking = (req as any).booking;
+      const userId = req.userId;
+      const booking = req.booking;
+      
+      if (!userId || !booking) {
+        return res.status(401).json({ error: 'Authentication required or booking not found' });
+      }
       
       if (booking.userId !== userId) {
         return res.status(403).json({ error: 'Only the booking user can release milestone funds' });
@@ -3764,10 +4618,15 @@ export async function registerRoutes(
         });
       }
 
+      const vendorId = booking.vendorId;
+      if (!vendorId) {
+        return res.status(400).json({ error: 'Vendor ID not found for this booking' });
+      }
+
       const event = await storage.releaseEscrowMilestone(
         escrow.id,
         milestoneId,
-        booking.vendorId,
+        vendorId,
         userId
       );
 
@@ -3816,8 +4675,12 @@ export async function registerRoutes(
     try {
       const { id } = req.params;
       const { signerType } = req.body;
-      const userId = (req as any).userId;
-      const booking = (req as any).booking;
+      const userId = req.userId;
+      const booking = req.booking;
+      
+      if (!userId || !booking) {
+        return res.status(401).json({ error: 'Authentication required or booking not found' });
+      }
       
       if (!signerType || !['user', 'vendor'].includes(signerType)) {
         return res.status(400).json({ error: 'signerType must be "user" or "vendor"' });
@@ -3865,8 +4728,8 @@ export async function registerRoutes(
     try {
       const { id } = req.params;
       const { message, attachments } = req.body;
-      const senderId = (req as any).userId;
-      const isAdmin = (req as any).isAdmin;
+      const senderId = req.userId;
+      const isAdmin = req.isAdmin;
       
       if (!message) {
         return res.status(400).json({ error: 'message is required' });
@@ -3899,7 +4762,7 @@ export async function registerRoutes(
     try {
       const { id } = req.params;
       const { reason, description, evidence } = req.body;
-      const openedBy = (req as any).userId;
+      const openedBy = req.userId;
       
       if (!reason) {
         return res.status(400).json({ error: 'reason is required' });
@@ -3954,8 +4817,8 @@ export async function registerRoutes(
         return res.status(400).json({ error: `Invalid resolution. Valid values: ${validResolutions.join(', ')}` });
       }
 
-      const adminId = (req as any).userId;
-      const dispute = await storage.resolveDispute(id, resolution, resolutionNotes || '', adminId);
+      const adminId = req.userId;
+      const dispute = await storage.resolveDispute(id, resolution, resolutionNotes || '', adminId!);
       
       if (!dispute) {
         return res.status(404).json({ error: 'Dispute not found' });
@@ -3971,9 +4834,9 @@ export async function registerRoutes(
   app.post("/api/admin/disputes/:id/join", adminAuth, async (req, res, next) => {
     try {
       const { id } = req.params;
-      const adminId = (req as any).userId;
+      const adminId = req.userId;
       
-      const dispute = await storage.joinDispute(id, adminId);
+      const dispute = await storage.joinDispute(id, adminId!);
       if (!dispute) {
         return res.status(404).json({ error: 'Dispute not found' });
       }
@@ -4015,6 +4878,40 @@ export async function registerRoutes(
       const { chatId } = req.params;
       const messages = await storage.getSabiGuardMessages(chatId);
       res.json(messages);
+    } catch (error) {
+      next(error);
+    }
+  });
+
+  app.post("/api/sabiguard/chats/:chatId/messages", userAuth, async (req, res, next) => {
+    try {
+      const { chatId } = req.params;
+      const { role, text, userId } = req.body;
+      if (!role || !text) {
+        return res.status(400).json({ error: "Role and text are required" });
+      }
+
+      // Check storage limits if userId is provided
+      if (userId) {
+        const profile = await storage.getUserProfile(userId);
+        if (profile) {
+          const limit = profile.chatStorageLimit || 524288;
+          const used = profile.chatStorageUsed || 0;
+          if (used >= limit) {
+            return res.status(400).json({ error: "Storage limit reached" });
+          }
+        }
+      }
+
+      const message = await storage.addSabiGuardMessage(chatId, role, text);
+      
+      // Update storage used
+      if (userId) {
+        const bytesUsed = text.length;
+        await storage.updateChatStorageUsed(userId, bytesUsed);
+      }
+
+      res.json(message);
     } catch (error) {
       next(error);
     }
@@ -4064,9 +4961,7 @@ export async function registerRoutes(
       // Check and deduct credits
       const userCredits = await storage.getUserCredits(userId);
       const sabiguardCost = 5; // 5 credits per query
-      const total = userCredits?.totalCredits || 0;
-      const used = userCredits?.usedCredits || 0;
-      const available = total - used;
+      const available = userCredits?.totalCredits || 0;
   
       if (available < sabiguardCost) {
         return res.status(400).json({ 
@@ -4076,11 +4971,26 @@ export async function registerRoutes(
         });
       }
   
-      // Deduct credits
+      // Deduct credits (subtract instead of add)
       await storage.deductCredits(userId, sabiguardCost, "SabiGuard query", "SabiGuard query");
   
-      // Get AI Response (placeholder)
-      const aiResponseText = "This is a placeholder response. Implement Gemini API integration here.";
+      // Get AI Response
+      let aiResponseText = "";
+      try {
+        const prompt = `You are SabiGuard, a civic and legal AI assistant for Nigeria. 
+        User Question: ${query}
+        
+        CRITICAL INSTRUCTIONS:
+        1. Summarize your response. Be extremely concise and "Short and Smart".
+        2. Do not provide bulky details unless the user explicitly asks for them.
+        3. Provide helpful, accurate, and concise guidance. 
+        4. If it's a legal issue, remind them you are an AI, not a lawyer.
+        5. Always end by asking: "Would you like a more detailed explanation, or should we continue in this 'Short and Smart' mode?"`;
+        aiResponseText = await generateAIResponse(prompt) || "I'm sorry, I couldn't generate a response at this time.";
+      } catch (aiErr: any) {
+        console.error('SabiGuard AI Error:', aiErr);
+        aiResponseText = `Error generating AI response: ${aiErr.message}. Please check API keys.`;
+      }
       
       // Save to chat if chatId provided
       if (chatId) {
@@ -4151,9 +5061,7 @@ export async function registerRoutes(
       // Check and deduct credits
       const userCredits = await storage.getUserCredits(userId);
       const sabimoveCost = 3; // 3 credits per route
-      const total = userCredits?.totalCredits || 0;
-      const used = userCredits?.usedCredits || 0;
-      const available = total - used;
+      const available = userCredits?.totalCredits || 0;
   
       if (available < sabimoveCost) {
         return res.status(400).json({ 
@@ -4214,9 +5122,7 @@ export async function registerRoutes(
       // Check and deduct credits
       const userCredits = await storage.getUserCredits(userId);
       const sabiworkCost = 2; // 2 credits per recommendation request
-      const total = userCredits?.totalCredits || 0;
-      const used = userCredits?.usedCredits || 0;
-      const available = total - used;
+      const available = userCredits?.totalCredits || 0;
   
       if (available < sabiworkCost) {
         return res.status(400).json({ 
@@ -4319,40 +5225,141 @@ export async function registerRoutes(
   // ===== Notification API =====
 
   // Get user notifications
-  app.get("/api/notifications/:userId", userAuth, async (req, res, next) => {
+  app.get("/api/notifications/:userId", async (req, res, next) => {
     try {
+      console.log(`[GET /api/notifications/${req.params.userId}] Request received`);
       const { userId } = req.params;
       const { limit, type } = req.query;
+      const authHeader = req.headers.authorization;
+
+      // Disable caching for notifications to prevent ERR_ABORTED or stale data
+      res.setHeader('Cache-Control', 'no-store, no-cache, must-revalidate, proxy-revalidate');
+      res.setHeader('Pragma', 'no-cache');
+      res.setHeader('Expires', '0');
+      res.setHeader('Surrogate-Control', 'no-store');
+
+      if (!authHeader?.startsWith('Bearer ')) {
+        return res.status(401).json({ error: 'Authentication required' });
+      }
+
+      const token = authHeader.substring(7);
+      let result;
+      try {
+        result = await verifyUserToken(token);
+      } catch (tokenError) {
+        console.error('Token verification error:', tokenError);
+        return res.status(401).json({ error: 'Invalid or expired token' });
+      }
+
+      if (!result || !result.valid || !result.userId) {
+        return res.status(401).json({ error: 'Invalid or expired token' });
+      }
+
+      // Security check: If not admin and trying to view another user's notifications
+      let isAdmin = false;
+      try {
+        isAdmin = await isUserAdmin(result.userId);
+      } catch (adminCheckError) {
+        console.error('Admin check error:', adminCheckError);
+        // Default to non-admin if check fails
+      }
+
+      if (userId !== result.userId && !isAdmin) {
+        return res.status(403).json({ error: 'Access denied: User ID mismatch' });
+      }
       
-      let notifications = await storage.getNotificationsByUserId(
-        userId,
-        limit ? parseInt(limit as string) : 50
-      );
+      let notifications = [];
+      try {
+        notifications = await storage.getNotificationsByUserId(
+          userId,
+          limit ? parseInt(limit as string) : 50
+        );
+      } catch (storageError) {
+        console.error('Storage fetch notifications error:', storageError);
+        return res.status(500).json({ error: 'Failed to fetch notifications from storage' });
+      }
 
       if (type && type !== 'all') {
         notifications = notifications.filter(n => n.type === type);
       }
       
-      const unreadCount = await storage.getUnreadNotificationCount(userId);
+      let unreadCount = 0;
+      try {
+        unreadCount = await storage.getUnreadNotificationCount(userId);
+      } catch (unreadError) {
+        console.error('Storage fetch unread count error:', unreadError);
+        // Non-fatal, just set to 0
+      }
       
       res.json({
-        notifications,
-        unreadCount,
-        totalCount: notifications.length
+        notifications: notifications || [],
+        unreadCount: unreadCount || 0,
+        totalCount: (notifications || []).length
       });
     } catch (error) {
-      next(error);
+      console.error('Unexpected error in GET /api/notifications/:userId:', error);
+      if (!res.headersSent) {
+        res.status(500).json({ error: 'Internal server error fetching notifications' });
+      }
     }
   });
 
   // Get unread notification count
-  app.get("/api/notifications/:userId/unread", userAuth, async (req, res, next) => {
+  app.get("/api/notifications/:userId/unread", async (req, res, next) => {
     try {
       const { userId } = req.params;
-      const count = await storage.getUnreadNotificationCount(userId);
+      const authHeader = req.headers.authorization;
+
+      // Disable caching for unread count to prevent ERR_ABORTED or stale data
+      res.setHeader('Cache-Control', 'no-store, no-cache, must-revalidate, proxy-revalidate');
+      res.setHeader('Pragma', 'no-cache');
+      res.setHeader('Expires', '0');
+      res.setHeader('Surrogate-Control', 'no-store');
+
+      if (!authHeader?.startsWith('Bearer ')) {
+        return res.status(401).json({ error: 'Authentication required' });
+      }
+
+      const token = authHeader.substring(7);
+      let result;
+      try {
+        result = await verifyUserToken(token);
+      } catch (tokenError) {
+        console.error('Token verification error:', tokenError);
+        return res.status(401).json({ error: 'Invalid or expired token' });
+      }
+
+      if (!result || !result.valid) {
+        return res.status(401).json({ error: 'Invalid or expired token' });
+      }
+
+      let isAdmin = false;
+      if (result.userId) {
+        try {
+          isAdmin = await isUserAdmin(result.userId);
+        } catch (adminCheckError) {
+          console.error('Admin check error:', adminCheckError);
+        }
+      }
+
+      if (userId !== result.userId && !isAdmin) {
+        return res.status(403).json({ error: 'Access denied' });
+      }
+
+      let count = 0;
+      try {
+        count = await storage.getUnreadNotificationCount(userId);
+      } catch (storageError) {
+        console.error('Storage fetch unread count error:', storageError);
+        return res.status(500).json({ error: 'Failed to fetch unread count' });
+      }
+
       res.json({ count });
     } catch (error) {
-      next(error);
+      console.error('Unexpected error in GET /api/notifications/:userId/unread:', error);
+      if (!res.headersSent) {
+        res.status(500).json({ error: 'Internal server error fetching unread count' });
+      }
     }
   });
 
@@ -4542,11 +5549,19 @@ export async function registerRoutes(
         });
       }
       
+      let finalPassword = password;
+      if (password === '••••••••') {
+        const existingSettings = await storage.getSmtpSettings();
+        if (existingSettings) {
+          finalPassword = existingSettings.password;
+        }
+      }
+      
       const settings = await storage.updateSmtpSettings({
         host,
         port: parseInt(port),
         username,
-        password,
+        password: finalPassword,
         fromEmail,
         fromName,
         encryption: encryption || 'tls',
@@ -4557,6 +5572,303 @@ export async function registerRoutes(
         ...settings,
         password: '••••••••'
       });
+    } catch (error) {
+      next(error);
+    }
+  });
+
+  // ===== Admin Push Settings API =====
+
+  // Get Push settings
+  app.get("/api/admin/notifications/push", adminAuth, async (req, res, next) => {
+    try {
+      const settings = await storage.getPushSettings();
+      
+      if (!settings) {
+        return res.json({ configured: false });
+      }
+      
+      res.json({
+        ...settings,
+        privateKey: '••••••••',
+        configured: true
+      });
+    } catch (error) {
+      next(error);
+    }
+  });
+
+  // Update Push settings
+  app.post("/api/admin/notifications/push", adminAuth, async (req, res, next) => {
+    try {
+      const { publicKey, privateKey, subject, isActive } = req.body;
+      
+      if (!publicKey || !privateKey || !subject) {
+        return res.status(400).json({ 
+          error: 'publicKey, privateKey, and subject are required' 
+        });
+      }
+      
+      let finalPrivateKey = privateKey;
+      if (privateKey === '••••••••') {
+        const existingSettings = await storage.getPushSettings();
+        if (existingSettings) {
+          finalPrivateKey = existingSettings.privateKey;
+        }
+      }
+      
+      const settings = await storage.updatePushSettings({
+        publicKey,
+        privateKey: finalPrivateKey,
+        subject,
+        isActive: isActive !== false
+      });
+      
+      res.json({
+        ...settings,
+        privateKey: '••••••••'
+      });
+    } catch (error) {
+      next(error);
+    }
+  });
+
+  // Test Push notification
+  app.post("/api/admin/notifications/push/test", adminAuth, async (req, res, next) => {
+    try {
+      const { userId } = req.body;
+      if (!userId) return res.status(400).json({ error: 'userId is required for testing' });
+
+      const success = await storage.sendNotification({
+        userId,
+        type: 'system',
+        title: 'Push Test',
+        message: 'This is a test push notification from SabiRight Admin.',
+        channels: ['push', 'in_app']
+      });
+
+      res.json({ success });
+    } catch (error: any) {
+      console.error('Push Test Error:', error);
+      res.status(500).json({ 
+        error: 'Push test failed', 
+        details: error.message 
+      });
+    }
+  });
+
+  // Generate VAPID keys
+  app.post("/api/admin/notifications/push/generate-keys", adminAuth, async (req, res, next) => {
+    try {
+      const vapidKeys = webpush.generateVAPIDKeys();
+      res.json(vapidKeys);
+    } catch (error: any) {
+      console.error('VAPID Key Generation Error:', error);
+      res.status(500).json({ 
+        error: 'Failed to generate VAPID keys', 
+        details: error.message 
+      });
+    }
+  });
+
+  // Test SMTP connection
+  app.post("/api/admin/notifications/smtp/test", adminAuth, async (req, res, next) => {
+    try {
+      const { host, port, username, password, fromEmail, fromName, encryption } = req.body;
+      
+      let finalPassword = password;
+      if (password === '••••••••') {
+        const settings = await storage.getSmtpSettings();
+        if (settings) {
+          finalPassword = settings.password;
+        }
+      }
+
+      if (!host || !port || !username || !finalPassword || !fromEmail || !fromName) {
+        return res.status(400).json({ error: 'All fields are required for testing' });
+      }
+
+      const transporter = nodemailer.createTransport({
+        host,
+        port: parseInt(port),
+        secure: encryption === 'ssl' || parseInt(port) === 465,
+        auth: {
+          user: username,
+          pass: finalPassword,
+        },
+        tls: {
+          rejectUnauthorized: false
+        }
+      });
+
+      // Verify connection configuration
+      await transporter.verify();
+
+      // Send a test email
+      const info = await transporter.sendMail({
+        from: `"${fromName}" <${fromEmail}>`,
+        to: fromEmail, // Send to self
+        subject: "SMTP Connection Test - SabiRight",
+        html: `
+          <h1>SMTP Connection Successful!</h1>
+          <p>This is a test email from SabiRight Admin Dashboard.</p>
+          <p>If you received this, your SMTP settings are correctly configured.</p>
+          <hr />
+          <p><strong>Config Details:</strong></p>
+          <ul>
+            <li>Host: ${host}</li>
+            <li>Port: ${port}</li>
+            <li>User: ${username}</li>
+            <li>Encryption: ${encryption || 'tls'}</li>
+          </ul>
+        `,
+      });
+
+      res.json({ success: true, messageId: info.messageId });
+    } catch (error: any) {
+      console.error('SMTP Test Error:', error);
+      res.status(500).json({ 
+        error: 'SMTP test failed', 
+        details: error.message 
+      });
+    }
+  });
+
+  // ===== Crowd Translation API =====
+
+  // Submit a translation
+  app.post("/api/crowd-translations", userAuth, async (req, res, next) => {
+    try {
+      const { termId, english, translation, language } = req.body;
+      if (!termId || !english || !translation || !language) {
+        return res.status(400).json({ error: "Missing required fields" });
+      }
+
+      const result = await storage.submitTranslation({
+        termId,
+        english,
+        translation,
+        language,
+        userId: req.userId,
+      });
+
+      // Award credits for contributing
+      try {
+        await storage.refundCredits(req.userId!, 5, "Translation Contribution");
+      } catch (e) {
+        console.error('Failed to award credits for translation:', e);
+      }
+
+      res.json(result);
+    } catch (error) {
+      next(error);
+    }
+  });
+
+  // Get random translation for verification
+  app.get("/api/crowd-translations/verification", userAuth, async (req, res, next) => {
+    try {
+      const translation = await storage.getRandomTranslationForVerification(req.userId!);
+      if (!translation) {
+        return res.status(404).json({ error: "No translations available for verification" });
+      }
+      res.json(translation);
+    } catch (error) {
+      next(error);
+    }
+  });
+
+  // Vote on a translation
+  app.post("/api/crowd-translations/:id/vote", userAuth, async (req, res, next) => {
+    try {
+      const { id } = req.params;
+      const { vote } = req.body; // boolean: true for Yes, false for No
+      
+      await storage.voteTranslation(id, vote);
+      
+      // Award credits for voting/verifying
+      try {
+        await storage.refundCredits(req.userId!, 2, "Translation Verification");
+      } catch (e) {
+        console.error('Failed to award credits for voting:', e);
+      }
+
+      res.json({ success: true });
+    } catch (error) {
+      next(error);
+    }
+  });
+
+  // Admin: Get translation stats
+  app.get("/api/admin/crowd-translations/stats", adminAuth, async (req, res, next) => {
+    try {
+      console.log(`[Admin] Fetching crowd translation stats`);
+      const stats = await storage.getCrowdTranslationStats();
+      console.log(`[Admin] Stats:`, stats);
+      res.json(stats);
+    } catch (error) {
+      console.error(`[Admin] Error fetching stats:`, error);
+      next(error);
+    }
+  });
+
+  // Admin: Get all crowd translations
+  app.get("/api/admin/crowd-translations", adminAuth, async (req, res, next) => {
+    try {
+      console.log(`[Admin] Fetching all crowd translations`);
+      const translations = await storage.getAllCrowdTranslations();
+      console.log(`[Admin] Found ${translations.length} translations`);
+      res.json(translations);
+    } catch (error) {
+      console.error(`[Admin] Error fetching translations:`, error);
+      next(error);
+    }
+  });
+
+  // Admin: Export verified translations as JSONL
+  app.get("/api/admin/crowd-translations/export", adminAuth, async (req, res, next) => {
+    try {
+      const translations = await storage.getVerifiedTranslations(2); // votes > 2
+      
+      const jsonl = translations.map(t => JSON.stringify({
+        instruction: `Translate ${t.english} to ${t.language}`,
+        input: t.english,
+        output: t.translation
+      })).join('\n');
+
+      res.setHeader('Content-Type', 'application/x-jsonlines');
+      res.setHeader('Content-Disposition', 'attachment; filename=crowd_translations_export.jsonl');
+      res.send(jsonl);
+    } catch (error) {
+      next(error);
+    }
+  });
+
+  // Admin: Get all training terms
+  app.get("/api/admin/training-terms", adminAuth, async (req, res, next) => {
+    try {
+      const terms = await storage.getTrainingTerms();
+      res.json(terms);
+    } catch (error) {
+      next(error);
+    }
+  });
+
+  // Admin: Create new training term
+  app.post("/api/admin/training-terms", adminAuth, async (req, res, next) => {
+    try {
+      const term = await storage.createTrainingTerm(req.body);
+      res.json(term);
+    } catch (error) {
+      next(error);
+    }
+  });
+
+  // Admin: Delete training term
+  app.delete("/api/admin/training-terms/:id", adminAuth, async (req, res, next) => {
+    try {
+      await storage.deleteTrainingTerm(req.params.id);
+      res.json({ success: true });
     } catch (error) {
       next(error);
     }
@@ -4640,20 +5952,20 @@ export async function registerRoutes(
   app.post("/api/admin/disputes/:id/join", adminAuth, async (req, res, next) => {
     try {
       const { id } = req.params;
-      const adminId = (req as any).userId;
+      const adminId = req.userId;
       
       const dispute = await storage.getDisputeById(id);
       if (!dispute) {
         return res.status(404).json({ error: 'Dispute not found' });
       }
 
-      const updatedDispute = await storage.joinDispute(id, adminId);
+      const updatedDispute = await storage.joinDispute(id, adminId!);
 
       // Auto-message for admin joining
       if (updatedDispute) {
         await storage.createBookingMessage({
           bookingId: updatedDispute.bookingId,
-          senderId: adminId,
+          senderId: adminId!,
           message: 'An administrator has joined the dispute. User and vendor interaction is now restricted.',
           isAdminMessage: true,
           createdAt: new Date()
@@ -4670,7 +5982,7 @@ export async function registerRoutes(
     try {
       const { id } = req.params;
       const { resolution, resolutionNotes } = req.body;
-      const adminId = (req as any).userId;
+      const adminId = req.userId;
 
       if (!resolution) {
         return res.status(400).json({ error: 'Resolution required' });
@@ -4681,7 +5993,7 @@ export async function registerRoutes(
         return res.status(404).json({ error: 'Dispute not found' });
       }
 
-      const updatedDispute = await storage.resolveDispute(id, resolution, resolutionNotes || '', adminId);
+      const updatedDispute = await storage.resolveDispute(id, resolution, resolutionNotes || '', adminId!);
       res.json(updatedDispute);
     } catch (error) {
       next(error);
@@ -4791,6 +6103,43 @@ export async function registerRoutes(
       next(error);
     }
   });
+
+  // Admin Generated Jobs API
+  app.get("/api/admin/generated-jobs", adminAuth, async (req, res, next) => {
+    try {
+      const jobs = await storage.getGeneratedJobs();
+      res.json(jobs);
+    } catch (error) {
+      next(error);
+    }
+  });
+
+  app.delete("/api/admin/generated-jobs/:id", adminAuth, async (req, res, next) => {
+    try {
+      await storage.deleteGeneratedJob(req.params.id);
+      res.json({ success: true });
+    } catch (error) {
+      next(error);
+    }
+  });
+
+  // Auto-delete generated jobs older than 48 hours
+  const cleanupGeneratedJobs = async () => {
+    try {
+      console.log('[Cleanup] Running generated jobs cleanup...');
+      const deletedCount = await storage.cleanupOldGeneratedJobs(48);
+      if (deletedCount > 0) {
+        console.log(`[Cleanup] Deleted ${deletedCount} old generated jobs.`);
+      }
+    } catch (error) {
+      console.error('[Cleanup] Error cleaning up generated jobs:', error);
+    }
+  };
+
+  // Run cleanup every hour
+  setInterval(cleanupGeneratedJobs, 60 * 60 * 1000);
+  // Also run once at startup after a short delay
+  setTimeout(cleanupGeneratedJobs, 10000);
 
   return httpServer;
 }

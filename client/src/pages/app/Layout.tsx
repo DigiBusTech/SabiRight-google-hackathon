@@ -1,6 +1,8 @@
 import { Link, useLocation } from "wouter";
 import { cn } from "@/lib/utils";
 import { 
+  ChevronDown,
+  ChevronRight,
   LayoutDashboard, 
   Scale, 
   Store, 
@@ -18,9 +20,11 @@ import {
   BarChart3,
   Wallet,
   CalendarCheck,
-  Bell
+  Bell,
+  Moon,
+  Sun
 } from "lucide-react";
-import { useState } from "react";
+import { useState, useEffect } from "react";
 import { Button } from "@/components/ui/button";
 import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar";
 import { useAuth } from "@/context/AuthContext";
@@ -30,6 +34,11 @@ import { Switch } from "@/components/ui/switch";
 import { Badge } from "@/components/ui/badge";
 import { Label } from "@/components/ui/label";
 import NotificationBell from "@/components/NotificationBell";
+import { motion, AnimatePresence } from "framer-motion";
+import { Navbar } from "@/components/layout/Navbar";
+import { Footer } from "@/components/layout/Footer";
+import { useTheme } from "@/context/ThemeContext";
+import { useQuery } from "@tanstack/react-query";
 
 interface AppLayoutProps {
   children: React.ReactNode;
@@ -38,11 +47,37 @@ interface AppLayoutProps {
 export default function AppLayout({ children }: AppLayoutProps) {
   const [location, setLocation] = useLocation();
   const [isSidebarOpen, setIsSidebarOpen] = useState(false);
+  const [isSabiSquareOpen, setIsSabiSquareOpen] = useState(false);
   const { user, profile, loading, switchVendorMode } = useAuth();
+  const { theme, toggleTheme } = useTheme();
+
+  const { data: settings = [] } = useQuery<any[]>({
+    queryKey: ['settings'],
+    queryFn: async () => {
+      const res = await fetch('/api/settings');
+      if (!res.ok) return [];
+      return res.json();
+    }
+  });
+
+  const getSetting = (key: string) => settings.find((s: any) => s.key === key)?.value;
+  
+  const siteLogo = theme === 'dark' 
+    ? (getSetting('site_logo_dark') || getSetting('site_logo') || "/assets/sabiright-icon.png")
+    : (getSetting('site_logo') || "/assets/sabiright-icon.png");
+
+  // Keep SabiSquare open if active
+  useEffect(() => {
+    if (location === '/app/forum' || location === '/app/events' || location === '/app/jobs') {
+      setIsSabiSquareOpen(true);
+    }
+  }, [location]);
 
   // Protect Route
   const publicRoutes = ['/app/forum', '/app/jobs', '/app/events'];
-  if (!loading && !user && !publicRoutes.includes(location)) {
+  const isPublicRoute = publicRoutes.includes(location);
+
+  if (!loading && !user && !isPublicRoute) {
       setTimeout(() => setLocation("/auth/login"), 0);
       return null;
   }
@@ -52,13 +87,20 @@ export default function AppLayout({ children }: AppLayoutProps) {
       setLocation("/");
   };
 
+  // If not logged in and on a public route, show the public layout
+  if (!user && isPublicRoute) {
+    return (
+      <div className="min-h-screen bg-slate-50 dark:bg-slate-950 font-sans text-slate-900 dark:text-white flex flex-col">
+        <Navbar />
+        <div className="flex-1 pt-24 pb-12">
+          {children}
+        </div>
+        <Footer />
+      </div>
+    );
+  }
+
   // Admin items
-  console.log('[Layout] Profile status:', { 
-    isAdmin: profile?.isAdmin, 
-    isVendor: profile?.isVendor, 
-    hasProfile: !!profile,
-    userId: profile?.userId
-  });
   
   const adminItems = profile?.isAdmin ? [
     { 
@@ -72,15 +114,17 @@ export default function AppLayout({ children }: AppLayoutProps) {
     { icon: LayoutDashboard, label: "Dashboard", href: "/app" },
     { icon: Scale, label: "SabiRight AI", href: "/app/civic", description: "Law-based Guidance" },
     { icon: AlertTriangle, label: "SabiMove", href: "/app/traffic", description: "Smart Traffic" },
-    { icon: Briefcase, label: "SabiWork", href: "/app/jobs", description: "Jobs & Careers" },
     { icon: Store, label: "SabiMarket", href: "/app/marketplace", description: "Find Pros" },
-    { icon: Users, label: "SabiSquare", href: "/app/forum", description: "Community" },
-    { icon: Calendar, label: "Events", href: "/app/events" },
-    { icon: CalendarCheck, label: "My Bookings", href: "/app/bookings" },
     { icon: Wallet, label: "Wallet", href: "/app/wallet" },
-    { icon: BadgeCheck, label: "KYC Verification", href: "/app/kyc" },
+    { icon: CalendarCheck, label: "My Bookings", href: "/app/bookings" },
     { icon: Zap, label: "Plans & Billing", href: "/app/plans" },
     { icon: Settings, label: "Settings", href: "/app/settings" },
+  ];
+
+  const sabiSquareItems = [
+    { icon: Users, label: "Community Forum", href: "/app/forum" },
+    { icon: Briefcase, label: "SabiWork", href: "/app/jobs" },
+    { icon: Calendar, label: "Events", href: "/app/events" },
   ];
 
   const vendorItems = profile?.isVendor ? [
@@ -91,11 +135,8 @@ export default function AppLayout({ children }: AppLayoutProps) {
     },
   ] : [];
 
-  // Construct final navigation list
-  const navItems = [...adminItems, ...baseNavItems, ...vendorItems];
-
   return (
-    <div className="min-h-screen bg-slate-50 flex font-sans text-slate-900">
+    <div className="min-h-screen bg-slate-50 dark:bg-slate-950 flex font-sans text-slate-900 dark:text-slate-100 transition-colors duration-300">
       {/* Mobile Sidebar Overlay */}
       {isSidebarOpen && (
         <div 
@@ -107,20 +148,20 @@ export default function AppLayout({ children }: AppLayoutProps) {
       {/* Sidebar */}
       <aside 
         className={cn(
-          "fixed md:sticky top-0 h-screen w-64 bg-slate-900 text-white z-50 transition-transform duration-300 ease-in-out flex flex-col",
+          "fixed md:sticky top-0 h-screen w-64 bg-slate-900 dark:bg-slate-950 text-white z-50 transition-transform duration-300 ease-in-out flex flex-col border-r border-slate-800",
           isSidebarOpen ? "translate-x-0" : "-translate-x-full md:translate-x-0"
         )}
       >
         <div className="p-6 flex items-center gap-3 border-b border-slate-800">
           <img 
-            src="/assets/sabiright-icon.png" 
+            src={siteLogo} 
             alt="SabiRight" 
             className="h-8 w-8 rounded-lg"
             onError={(e) => {
-              (e.target as HTMLImageElement).style.display = 'none';
+              (e.target as HTMLImageElement).src = "/assets/sabiright-icon.png";
             }}
           />
-          <span className="font-bold text-lg tracking-tight">SabiRight</span>
+          <span className="font-bold text-lg tracking-tight">{getSetting('site_title') || "SabiRight"}</span>
           <button 
             className="md:hidden ml-auto text-slate-400"
             onClick={() => setIsSidebarOpen(false)}
@@ -129,7 +170,7 @@ export default function AppLayout({ children }: AppLayoutProps) {
           </button>
         </div>
 
-        <nav className="flex-1 p-4 space-y-2 overflow-y-auto">
+        <nav className="flex-1 p-4 space-y-2 overflow-y-auto custom-scrollbar">
           {profile?.isVendor && (
             <div className="flex items-center justify-between px-4 py-3 mb-4 bg-white/5 rounded-xl border border-white/10">
               <div className="flex flex-col">
@@ -142,7 +183,129 @@ export default function AppLayout({ children }: AppLayoutProps) {
               />
             </div>
           )}
-          {navItems.map((item) => {
+
+          {/* Admin Items */}
+          {adminItems.map((item) => {
+            const isActive = location === item.href;
+            return (
+              <Link 
+                key={item.href} 
+                href={item.href}
+                className={cn(
+                  "flex items-center gap-3 px-4 py-3 rounded-xl transition-all duration-200 group",
+                  isActive 
+                    ? "bg-primary text-white font-semibold shadow-md shadow-primary/20" 
+                    : "text-slate-400 hover:bg-white/5 hover:text-white"
+                )}
+                onClick={() => setIsSidebarOpen(false)}
+              >
+                <item.icon className={cn("h-5 w-5", isActive ? "text-white" : "text-slate-500 group-hover:text-white")} />
+                {item.label}
+              </Link>
+            );
+          })}
+
+          {/* Main Items - Part 1 */}
+          {baseNavItems.slice(0, 3).map((item) => {
+            const isActive = location === item.href;
+            return (
+              <Link 
+                key={item.href} 
+                href={item.href}
+                className={cn(
+                  "flex items-center gap-3 px-4 py-3 rounded-xl transition-all duration-200 group",
+                  isActive 
+                    ? "bg-primary text-white font-semibold shadow-md shadow-primary/20" 
+                    : "text-slate-400 hover:bg-white/5 hover:text-white"
+                )}
+                onClick={() => setIsSidebarOpen(false)}
+              >
+                <item.icon className={cn("h-5 w-5", isActive ? "text-white" : "text-slate-500 group-hover:text-white")} />
+                {item.label}
+              </Link>
+            );
+          })}
+
+          {/* SabiSquare Collapsible */}
+          <div className="space-y-1">
+            <button
+              onClick={() => setIsSabiSquareOpen(!isSabiSquareOpen)}
+              className={cn(
+                "w-full flex items-center justify-between px-4 py-3 rounded-xl transition-all duration-200 group",
+                (location === '/app/forum' || location === '/app/events' || location === '/app/jobs')
+                  ? "text-white font-semibold"
+                  : "text-slate-400 hover:bg-white/5 hover:text-white"
+              )}
+            >
+              <div className="flex items-center gap-3">
+                <Users className={cn("h-5 w-5", (location === '/app/forum' || location === '/app/events' || location === '/app/jobs') ? "text-primary" : "text-slate-500 group-hover:text-white")} />
+                <span>SabiSquare</span>
+              </div>
+              {isSabiSquareOpen ? (
+                <ChevronDown className="h-4 w-4 text-slate-500" />
+              ) : (
+                <ChevronRight className="h-4 w-4 text-slate-500" />
+              )}
+            </button>
+
+            <AnimatePresence>
+              {isSabiSquareOpen && (
+                <motion.div
+                  initial={{ height: 0, opacity: 0 }}
+                  animate={{ height: "auto", opacity: 1 }}
+                  exit={{ height: 0, opacity: 0 }}
+                  transition={{ duration: 0.2 }}
+                  className="overflow-hidden"
+                >
+                  <div className="ml-4 pl-4 border-l border-slate-800 space-y-1 mt-1">
+                    {sabiSquareItems.map((item) => {
+                      const isActive = location === item.href;
+                      return (
+                        <Link 
+                          key={item.href} 
+                          href={item.href}
+                          className={cn(
+                            "flex items-center gap-3 px-4 py-2 rounded-lg transition-all duration-200 text-sm",
+                            isActive 
+                              ? "bg-white/10 text-white font-medium" 
+                              : "text-slate-400 hover:text-white"
+                          )}
+                          onClick={() => setIsSidebarOpen(false)}
+                        >
+                          <item.icon className={cn("h-4 w-4", isActive ? "text-primary" : "text-slate-500")} />
+                          {item.label}
+                        </Link>
+                      );
+                    })}
+                  </div>
+                </motion.div>
+              )}
+            </AnimatePresence>
+          </div>
+
+          {/* Main Items - Part 2 */}
+          {baseNavItems.slice(3).map((item) => {
+            const isActive = location === item.href;
+            return (
+              <Link 
+                key={item.href} 
+                href={item.href}
+                className={cn(
+                  "flex items-center gap-3 px-4 py-3 rounded-xl transition-all duration-200 group",
+                  isActive 
+                    ? "bg-primary text-white font-semibold shadow-md shadow-primary/20" 
+                    : "text-slate-400 hover:bg-white/5 hover:text-white"
+                )}
+                onClick={() => setIsSidebarOpen(false)}
+              >
+                <item.icon className={cn("h-5 w-5", isActive ? "text-white" : "text-slate-500 group-hover:text-white")} />
+                {item.label}
+              </Link>
+            );
+          })}
+
+          {/* Vendor Items */}
+          {vendorItems.map((item) => {
             const isActive = location === item.href;
             return (
               <Link 
@@ -195,19 +358,27 @@ export default function AppLayout({ children }: AppLayoutProps) {
 
       {/* Main Content */}
       <main className="flex-1 min-w-0">
-        <header className="bg-white border-b h-16 px-6 flex items-center justify-between sticky top-0 z-30">
+        <header className="bg-white dark:bg-slate-900 border-b dark:border-slate-800 h-16 px-6 flex items-center justify-between sticky top-0 z-30">
           <div className="flex items-center gap-4">
             <button 
-              className="md:hidden p-2 -ml-2 text-slate-600"
+              className="md:hidden p-2 -ml-2 text-slate-600 dark:text-slate-400"
               onClick={() => setIsSidebarOpen(true)}
             >
               <Menu className="h-6 w-6" />
             </button>
-            <h1 className="font-bold text-xl text-slate-800 capitalize">
-              {location.split('/').pop() || 'Dashboard'}
+            <h1 className="font-bold text-xl text-slate-800 dark:text-white capitalize">
+              {location === '/app' ? 'Dashboard' : location.split('/').pop()?.replace('-', ' ') || 'Dashboard'}
             </h1>
           </div>
           <div className="flex items-center gap-2">
+             <Button 
+               variant="ghost" 
+               size="icon" 
+               onClick={toggleTheme} 
+               className="rounded-full w-10 h-10 text-slate-500 hover:text-primary"
+             >
+               {theme === 'dark' ? <Sun className="h-5 w-5" /> : <Moon className="h-5 w-5" />}
+             </Button>
              <NotificationBell />
              <Link href="/app/settings" data-testid="link-settings-header">
                <Button size="icon" variant="ghost" className="relative text-slate-500 hover:text-primary">
@@ -217,7 +388,7 @@ export default function AppLayout({ children }: AppLayoutProps) {
           </div>
         </header>
 
-        <div className="p-6 max-w-7xl mx-auto animate-in fade-in slide-in-from-bottom-4 duration-500">
+        <div className="p-4 md:p-6 max-w-7xl mx-auto animate-in fade-in slide-in-from-bottom-4 duration-500">
           {children}
         </div>
       </main>

@@ -1,7 +1,35 @@
-import { type User, type InsertUser, type Subscription, type Credits, type Plan, type CreditLog, type CloakedRoute, type TrafficAlert, type DashboardTrafficCard, type UserProfile, type VendorApplication, type Event, type VendorService, type AdminSetting, type Payment, type Notification, type NotificationTemplate, type SabiGuardChat, type SabiGuardMessage, type MoatData } from "@shared/schema";
+import { type User, type InsertUser, type Subscription, type Credits, type Plan, type CreditLog, type CloakedRoute, type TrafficAlert, type DashboardTrafficCard, type UserProfile, type VendorApplication, type Event, type VendorService, type AdminSetting, type Payment, type Notification, type NotificationTemplate, type SabiGuardChat, type SabiGuardMessage, type MoatData, type Booking, type CrowdTranslation, type TrainingTerm, type InsertTrainingTerm } from "../shared/schema";
+
+declare global {
+  namespace Express {
+    interface Request {
+      user?: {
+        uid: string;
+        email?: string;
+        displayName?: string;
+      };
+      userId?: string;
+      booking?: Booking;
+      isAdmin?: boolean;
+    }
+  }
+}
 
 export interface IStorage {
   // ... (previous methods)
+  // Crowd Translations
+  submitTranslation(data: any): Promise<CrowdTranslation>;
+  getRandomTranslationForVerification(excludeUserId: string): Promise<CrowdTranslation | null>;
+  voteTranslation(translationId: string, vote: boolean): Promise<void>;
+  getVerifiedTranslations(minVotes: number): Promise<CrowdTranslation[]>;
+  getCrowdTranslationStats(): Promise<{ total: number, verified: number, totalVotes: number, byLanguage: Record<string, number> }>;
+  getAllCrowdTranslations(): Promise<CrowdTranslation[]>;
+
+  // Training Terms
+  getTrainingTerms(): Promise<TrainingTerm[]>;
+  createTrainingTerm(data: InsertTrainingTerm): Promise<TrainingTerm>;
+  deleteTrainingTerm(id: string): Promise<void>;
+
   // SabiGuard Chat
   getSabiGuardChats(userId: string): Promise<SabiGuardChat[]>;
   getSabiGuardMessages(chatId: string): Promise<SabiGuardMessage[]>;
@@ -47,6 +75,7 @@ export interface IStorage {
 
   // Cloaked Routes
   getUserRoutes(userId: string): Promise<CloakedRoute[]>;
+  getRoute(routeId: string): Promise<CloakedRoute | undefined>;
   createRoute(route: any): Promise<CloakedRoute>;
   updateRouteStatus(routeId: string, status: string): Promise<void>;
   deleteRoute(routeId: string): Promise<void>;
@@ -56,8 +85,10 @@ export interface IStorage {
   createAlert(alert: any): Promise<TrafficAlert>;
   acknowledgeAlert(alertId: string): Promise<void>;
 
-  // KYC & Vendor
-  updateUserKYC(userId: string, kycStatus: string, kycDocument?: string): Promise<void>;
+  // Email Verification & Vendor
+  updateEmailVerificationStatus(userId: string, status: string, document?: string): Promise<void>;
+  setEmailVerificationCode(userId: string, code: string, expires: Date): Promise<void>;
+  verifyEmailCode(userId: string, code: string): Promise<boolean>;
   getUserProfile(userId: string): Promise<UserProfile | undefined>;
   updateUserProfile(userId: string, updates: Partial<UserProfile>): Promise<UserProfile | undefined>;
   submitVendorApplication(userId: string, app: any): Promise<VendorApplication>;
@@ -69,6 +100,7 @@ export interface IStorage {
   // Dashboard Traffic
   getDashboardTraffic(userId: string): Promise<DashboardTrafficCard | undefined>;
   updateDashboardTraffic(userId: string, location: string, status: string, description: string): Promise<void>;
+  refreshDashboardTraffic?(userId: string): Promise<void>;
 
   // Events
   getEvents(): Promise<Event[]>;
@@ -91,6 +123,7 @@ export interface IStorage {
 
   // Payments
   getPayments(userId?: string): Promise<Payment[]>;
+  getPayment(paymentId: string): Promise<Payment | undefined>;
   createPayment(payment: any): Promise<Payment>;
   updatePaymentStatus(paymentId: string, status: string, providerRef?: string): Promise<void>;
 
@@ -164,11 +197,6 @@ export interface IStorage {
   voteForumPost(postId: string, userId: string, type: 'up' | 'down'): Promise<void>;
   voteForumComment(postId: string, commentId: string, userId: string): Promise<void>;
 
-  // MOAT Data
-  getMoatData(category?: string): Promise<any[]>;
-  createMoatData(data: any): Promise<any>;
-  deleteMoatData(id: string): Promise<void>;
-
   // FAQs
   getFaqs(): Promise<any[]>;
   createFaq(faq: any): Promise<any>;
@@ -185,4 +213,10 @@ export interface IStorage {
   createSurvey(survey: any): Promise<any>;
   getSurveys(): Promise<any[]>;
   getSurveysByFeature(feature: string): Promise<any[]>;
+
+  // Generated Jobs
+  getGeneratedJobs(userId?: string): Promise<any[]>;
+  createGeneratedJob(userId: string, jobData: any): Promise<any>;
+  deleteGeneratedJob(id: string): Promise<void>;
+  cleanupOldGeneratedJobs(hours: number): Promise<number>;
 }

@@ -39,7 +39,11 @@ import {
   AlertTriangle, 
   Trash2,
   Loader2,
-  ChevronRight
+  ChevronRight,
+  Share2,
+  Copy,
+  Gift,
+  RefreshCw
 } from "lucide-react";
 
 const NIGERIAN_CITIES = [
@@ -88,6 +92,36 @@ export default function Settings() {
   const [phone, setPhone] = useState(profile?.phone || "");
   const [isSaving, setIsSaving] = useState(false);
   const [isDeleting, setIsDeleting] = useState(false);
+  const [isGeneratingReferral, setIsGeneratingReferral] = useState(false);
+
+  const referralLink = profile?.referralCode 
+    ? `${window.location.origin}/auth/register?ref=${profile.referralCode}` 
+    : "";
+
+  const handleGenerateReferralCode = async () => {
+    if (!user?.uid) return;
+    setIsGeneratingReferral(true);
+    try {
+      const res = await fetch(`/api/profile/${user.uid}/referral-code`, {
+        method: 'POST'
+      });
+      if (res.ok) {
+        toast({ title: "Success", description: "Referral code generated!" });
+        await refreshProfile();
+      } else {
+        toast({ title: "Error", description: "Failed to generate code", variant: "destructive" });
+      }
+    } catch (err) {
+      toast({ title: "Error", description: "An error occurred", variant: "destructive" });
+    } finally {
+      setIsGeneratingReferral(false);
+    }
+  };
+
+  const copyToClipboard = (text: string) => {
+    navigator.clipboard.writeText(text);
+    toast({ title: "Copied!", description: "Link copied to clipboard" });
+  };
 
   const handleSaveChanges = async () => {
     if (!user?.uid) return;
@@ -256,6 +290,71 @@ export default function Settings() {
         </CardContent>
       </Card>
 
+      <Card>
+        <CardHeader>
+          <CardTitle className="text-lg flex items-center gap-2">
+            <Gift className="h-5 w-5 text-primary" />
+            Refer & Earn
+          </CardTitle>
+          <CardDescription>Invite friends to SabiRight and earn bonus credits.</CardDescription>
+        </CardHeader>
+        <CardContent className="space-y-4">
+          {!profile?.referralCode ? (
+            <div className="text-center p-6 border-2 border-dashed rounded-xl bg-slate-50">
+              <p className="text-sm text-slate-500 mb-4">You haven't generated a referral link yet.</p>
+              <Button 
+                onClick={handleGenerateReferralCode} 
+                disabled={isGeneratingReferral}
+                className="font-bold"
+              >
+                {isGeneratingReferral ? (
+                  <RefreshCw className="mr-2 h-4 w-4 animate-spin" />
+                ) : (
+                  <Share2 className="mr-2 h-4 w-4" />
+                )}
+                Generate My Referral Link
+              </Button>
+            </div>
+          ) : (
+            <div className="space-y-4">
+              <div className="p-4 bg-primary/5 border border-primary/10 rounded-xl">
+                <Label className="text-xs font-bold uppercase text-slate-500 mb-2 block">Your Referral Link</Label>
+                <div className="flex gap-2">
+                  <Input 
+                    readOnly 
+                    value={referralLink} 
+                    className="bg-white border-primary/20 font-mono text-xs"
+                  />
+                  <Button 
+                    size="icon" 
+                    variant="outline" 
+                    onClick={() => copyToClipboard(referralLink)}
+                    className="shrink-0"
+                  >
+                    <Copy className="h-4 w-4 text-primary" />
+                  </Button>
+                </div>
+              </div>
+
+              <div className="grid grid-cols-2 gap-4">
+                <div className="p-3 bg-slate-50 rounded-xl border border-slate-100">
+                  <p className="text-[10px] font-bold text-slate-400 uppercase">Total Referrals</p>
+                  <p className="text-2xl font-bold text-slate-900">{profile?.referralCount || 0}</p>
+                </div>
+                <div className="p-3 bg-slate-50 rounded-xl border border-slate-100">
+                  <p className="text-[10px] font-bold text-slate-400 uppercase">Credits Earned</p>
+                  <p className="text-2xl font-bold text-primary">{(profile?.referralCount || 0) * 50}</p>
+                </div>
+              </div>
+
+              <p className="text-[11px] text-slate-500 text-center italic">
+                You receive 50 bonus credits for every verified citizen who joins using your link.
+              </p>
+            </div>
+          )}
+        </CardContent>
+      </Card>
+
       <Card data-testid="card-account-status">
         <CardHeader>
           <CardTitle className="text-lg">Account Status</CardTitle>
@@ -268,31 +367,31 @@ export default function Settings() {
                 <ShieldCheck className="h-5 w-5 text-green-600" />
               </div>
               <div>
-                <p className="font-medium">KYC Verification</p>
-                <p className="text-sm text-slate-500">Identity verification status</p>
+                <p className="font-medium">Email Verification</p>
+                <p className="text-sm text-slate-500">Email verification status</p>
               </div>
             </div>
             <div className="flex items-center gap-2">
               <Badge 
-                data-testid="badge-kyc-status"
+                data-testid="badge-email-status"
                 className={
-                  profile?.kycStatus === 'verified' 
+                  profile?.emailVerificationStatus === 'verified' 
                     ? 'bg-green-100 text-green-700' 
-                    : profile?.kycStatus === 'pending'
+                    : profile?.emailVerificationStatus === 'pending'
                     ? 'bg-yellow-100 text-yellow-700'
                     : 'bg-slate-100 text-slate-700'
                 }
               >
-                {profile?.kycStatus === 'verified' 
+                {profile?.emailVerificationStatus === 'verified' 
                   ? 'Verified' 
-                  : profile?.kycStatus === 'pending'
+                  : profile?.emailVerificationStatus === 'pending'
                   ? 'Pending'
                   : 'Not Verified'}
               </Badge>
-              {profile?.kycStatus !== 'verified' && (
-                <Link href="/app/kyc">
-                  <Button variant="ghost" size="sm" data-testid="link-kyc">
-                    <ChevronRight className="h-4 w-4" />
+              {profile?.emailVerificationStatus !== 'verified' && (
+                <Link href="/app/verify-email">
+                  <Button variant="outline" size="sm" className="ml-2 font-bold" data-testid="link-email-verification">
+                    Verify Now
                   </Button>
                 </Link>
               )}

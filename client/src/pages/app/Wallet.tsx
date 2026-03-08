@@ -70,7 +70,8 @@ export default function Wallet() {
     queryKey: [`pending-payments-${user?.uid}`],
     queryFn: async () => {
       if (!user?.uid) return [];
-      const res = await fetch(`/api/payments?userId=${user.uid}`);
+      const headers = await getAuthHeaders();
+      const res = await fetch(`/api/payments?userId=${user.uid}`, { headers });
       if (!res.ok) return [];
       const allPayments = await res.json();
       return allPayments.filter((p: any) => p.status === 'pending');
@@ -386,26 +387,29 @@ export default function Wallet() {
               {transactions.map((tx) => (
                 <div
                   key={tx.id}
-                  className="flex items-center justify-between p-3 rounded-lg border bg-slate-50/50 hover:bg-slate-100/50 transition-colors"
+                  className="flex flex-col sm:flex-row sm:items-center justify-between p-3 rounded-lg border bg-slate-50/50 hover:bg-slate-100/50 transition-colors gap-2"
                   data-testid={`transaction-item-${tx.id}`}
                 >
                   <div className="flex items-center gap-3">
-                    <div className="h-10 w-10 rounded-full bg-white border flex items-center justify-center">
+                    <div className="h-10 w-10 rounded-full bg-white border flex items-center justify-center shrink-0">
                       {getTransactionIcon(tx.type)}
                     </div>
-                    <div>
-                      <div className="flex items-center gap-2">
-                        <p className="font-medium text-sm capitalize">{tx.type.replace("_", " ")}</p>
+                    <div className="min-w-0">
+                      <div className="flex items-center gap-2 flex-wrap">
+                        <p className="font-medium text-sm capitalize truncate">{tx.type.replace("_", " ")}</p>
                         <Badge variant={getTransactionBadgeVariant(tx.type)} className="text-[10px] px-1.5">
                           {tx.type}
                         </Badge>
                       </div>
-                      <p className="text-xs text-slate-500">
-                        {tx.description || "No description"} • {formatDate(tx.createdAt)}
+                      <p className="text-xs text-slate-500 truncate">
+                        {tx.description || "No description"}
+                      </p>
+                      <p className="text-[10px] text-slate-400">
+                        {formatDate(tx.createdAt)}
                       </p>
                     </div>
                   </div>
-                  <p className={`font-bold ${getTransactionColor(tx.type)}`} data-testid={`text-transaction-amount-${tx.id}`}>
+                  <p className={`font-bold text-sm sm:text-base self-end sm:self-center ${getTransactionColor(tx.type)}`} data-testid={`text-transaction-amount-${tx.id}`}>
                     {tx.type === "deposit" || tx.type === "escrow_release" ? "+" : "-"}
                     {formatCurrency(tx.amount)}
                   </p>

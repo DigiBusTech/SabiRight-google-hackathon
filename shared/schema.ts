@@ -12,18 +12,26 @@ export const users = pgTable("users", {
 export const userProfiles = pgTable("user_profiles", {
   userId: varchar("user_id").primaryKey().references(() => users.id),
   email: text("email"),
+  phoneNumber: text("phone_number"),
   displayName: text("display_name"),
+  dob: text("dob"),
+  gender: text("gender"),
   city: text("city"),
   state: text("state"),
   isVendor: boolean("is_vendor").default(false),
   isAdmin: boolean("is_admin").default(false),
-  kycStatus: text("kyc_status").default("pending"), // 'pending', 'verified', 'rejected'
-  kycDocument: text("kyc_document"),
-  kycSubmittedAt: timestamp("kyc_submitted_at"),
-  kycVerifiedAt: timestamp("kyc_verified_at"),
+  emailVerified: boolean("email_verified").default(false),
+  emailVerificationStatus: text("email_verification_status").default("pending"), // 'pending', 'verified', 'rejected'
+  emailVerificationSentAt: timestamp("email_verification_sent_at"),
+  emailVerificationCode: text("email_verification_code"),
+  emailVerificationExpires: timestamp("email_verification_expires"),
+  emailVerifiedAt: timestamp("email_verified_at"),
   vendorMode: boolean("vendor_mode").default(false),
   chatStorageLimit: integer("chat_storage_limit").default(524288), // Default 512KB in bytes
   chatStorageUsed: integer("chat_storage_used").default(0),
+  referralCode: text("referral_code").unique(),
+  referredBy: text("referred_by"),
+  referralCount: integer("referral_count").default(0),
   createdAt: timestamp("created_at").defaultNow(),
 });
 
@@ -46,7 +54,7 @@ export const sabiguardMessages = pgTable("sabiguard_messages", {
 export const moatData = pgTable("moat_data", {
   id: varchar("id").primaryKey().default(sql`gen_random_uuid()`),
   title: text("title"),
-  category: text("category").notNull(), // 'threat', 'policy', 'legal', 'chat_intel'
+  category: text("category").notNull(), // 'threat', 'policy', 'legal', 'chat_intel', 'case_documents'
   source: text("source"), // e.g., 'sabiguard_chat'
   content: text("content").notNull(),
   metadata: jsonb("metadata"),
@@ -111,10 +119,10 @@ export const vendorApplications = pgTable("vendor_applications", {
   businessDocument: text("business_document"),
   taxId: text("tax_id"),
   status: text("status").notNull(), // 'pending', 'approved', 'rejected'
-  kycStatus: text("kyc_status").default("pending"), // 'pending', 'verified', 'rejected'
+  emailVerificationStatus: text("email_verification_status").default("pending"), // 'pending', 'verified', 'rejected'
   createdAt: timestamp("created_at").defaultNow(),
   approvedAt: timestamp("approved_at"),
-  kycVerifiedAt: timestamp("kyc_verified_at"),
+  emailVerifiedAt: timestamp("email_verified_at"),
 });
 
 export const cloakedRoutes = pgTable("cloaked_routes", {
@@ -188,6 +196,7 @@ export const vendorServices = pgTable("vendor_services", {
   contactPhone: text("contact_phone"),
   contactEmail: text("contact_email"),
   priceRange: text("price_range"),
+  priceList: jsonb("price_list").default([]),
   isActive: boolean("is_active").default(true),
   createdAt: timestamp("created_at").defaultNow(),
   approvedAt: timestamp("approved_at"),
@@ -357,7 +366,7 @@ export const bookingMessages = pgTable("booking_messages", {
 export const notifications = pgTable("notifications", {
   id: varchar("id").primaryKey().default(sql`gen_random_uuid()`),
   userId: varchar("user_id").notNull().references(() => users.id),
-  type: text("type").notNull(), // 'booking', 'payment', 'kyc', 'system', 'event', 'job'
+  type: text("type").notNull(), // 'booking', 'payment', 'email_verification', 'system', 'event', 'job'
   title: text("title").notNull(),
   message: text("message").notNull(),
   data: jsonb("data").default({}), // additional data like booking_id, event_id
@@ -371,7 +380,7 @@ export const notifications = pgTable("notifications", {
 export const notificationTemplates = pgTable("notification_templates", {
   id: varchar("id").primaryKey().default(sql`gen_random_uuid()`),
   name: text("name").notNull().unique(),
-  type: text("type").notNull(), // 'booking', 'payment', 'kyc', 'system'
+  type: text("type").notNull(), // 'booking', 'payment', 'email_verification', 'system'
   subject: text("subject").notNull(),
   bodyTemplate: text("body_template").notNull(), // supports {{variable}} placeholders
   channels: text("channels").array().default([]), // ['email', 'push', 'in_app']
@@ -401,6 +410,16 @@ export const pushSubscriptions = pgTable("push_subscriptions", {
   endpoint: text("endpoint").notNull(),
   keys: jsonb("keys").notNull(), // {p256dh, auth}
   createdAt: timestamp("created_at").defaultNow(),
+});
+
+// Push notification settings (VAPID keys)
+export const pushSettings = pgTable("push_settings", {
+  id: varchar("id").primaryKey().default("push-config"),
+  publicKey: text("public_key").notNull(),
+  privateKey: text("private_key").notNull(),
+  subject: text("subject").notNull(), // mailto: or website URL
+  isActive: boolean("is_active").default(true),
+  updatedAt: timestamp("updated_at").defaultNow(),
 });
 
 // Saved jobs
@@ -462,6 +481,27 @@ export const surveys = pgTable("surveys", {
   createdAt: timestamp("created_at").defaultNow(),
 });
 
+// Crowd-Sourced Translations for AI Training
+export const crowdTranslations = pgTable("crowd_translations", {
+  id: varchar("id").primaryKey().default(sql`gen_random_uuid()`),
+  termId: text("term_id").notNull(),
+  english: text("english").notNull(),
+  translation: text("translation").notNull(),
+  language: text("language").notNull(),
+  userId: varchar("user_id").notNull(),
+  verified: boolean("verified").default(false),
+  votes: integer("votes").default(0),
+  createdAt: timestamp("created_at").defaultNow(),
+});
+
+export const trainingTerms = pgTable("training_terms", {
+  id: varchar("id").primaryKey().default(sql`gen_random_uuid()`),
+  term: text("term").notNull(),
+  category: text("category").default("general"),
+  context: text("context"),
+  createdAt: timestamp("created_at").defaultNow(),
+});
+
 // Saved events
 export const savedEvents = pgTable("saved_events", {
   id: varchar("id").primaryKey().default(sql`gen_random_uuid()`),
@@ -475,142 +515,40 @@ export const moatDataTraining = pgTable("moat_data_training", {
   id: varchar("id").primaryKey().default(sql`gen_random_uuid()`),
   title: text("title").notNull(),
   content: text("content").notNull(),
-  category: text("category").notNull(), // 'constitution', 'police_act', 'forum', 'marketplace', etc.
+  category: text("category").notNull(), // 'constitution', 'police_act', 'forum', 'marketplace', 'case_documents' etc.
   source: text("source"),
   createdAt: timestamp("created_at").defaultNow(),
   metadata: jsonb("metadata"),
 });
 
 // Insert schemas
-export const insertUserSchema = createInsertSchema(users).pick({
-  username: true,
-  password: true,
-});
-
-export const insertUserProfileSchema = createInsertSchema(userProfiles).omit({
-  createdAt: true,
-});
-
-export const insertSubscriptionSchema = createInsertSchema(subscriptions).omit({
-  startDate: true,
-});
-
-export const insertCreditsSchema = createInsertSchema(credits).omit({
-  lastRefreshDate: true,
-  renewalDate: true,
-});
-
-export const insertCouponSchema = createInsertSchema(coupons).omit({
-  id: true,
-  createdAt: true,
-  currentRedemptions: true,
-});
-
-export const insertWalletSchema = createInsertSchema(wallets).omit({
-  id: true,
-  createdAt: true,
-  updatedAt: true,
-});
-
-export const insertWalletTransactionSchema = createInsertSchema(walletTransactions).omit({
-  id: true,
-  createdAt: true,
-});
-
-export const insertBookingSchema = createInsertSchema(bookings).omit({
-  id: true,
-  createdAt: true,
-  confirmedAt: true,
-  completedAt: true,
-});
-
-export const insertBookingMilestoneSchema = createInsertSchema(bookingMilestones).omit({
-  id: true,
-  completedAt: true,
-  releasedAt: true,
-});
-
-export const insertEscrowAccountSchema = createInsertSchema(escrowAccounts).omit({
-  id: true,
-  createdAt: true,
-  fundedAt: true,
-  releasedAt: true,
-});
-
-export const insertEscrowEventSchema = createInsertSchema(escrowEvents).omit({
-  id: true,
-  createdAt: true,
-});
-
-export const insertContractSchema = createInsertSchema(contracts).omit({
-  id: true,
-  createdAt: true,
-});
-
-export const insertDisputeSchema = createInsertSchema(disputes).omit({
-  id: true,
-  createdAt: true,
-  resolvedAt: true,
-});
-
-export const insertBookingMessageSchema = createInsertSchema(bookingMessages).omit({
-  id: true,
-  createdAt: true,
-  readAt: true,
-});
-
-export const insertNotificationSchema = createInsertSchema(notifications).omit({
-  id: true,
-  createdAt: true,
-  readAt: true,
-});
-
-export const insertNotificationTemplateSchema = createInsertSchema(notificationTemplates).omit({
-  id: true,
-  createdAt: true,
-  updatedAt: true,
-});
-
-export const insertSmtpSettingsSchema = createInsertSchema(smtpSettings).omit({
-  id: true,
-  updatedAt: true,
-});
-
-export const insertPushSubscriptionSchema = createInsertSchema(pushSubscriptions).omit({
-  id: true,
-  createdAt: true,
-});
-
-export const insertSavedJobSchema = createInsertSchema(savedJobs).omit({
-  id: true,
-  savedAt: true,
-});
-
-export const insertAppliedJobSchema = createInsertSchema(appliedJobs).omit({
-  id: true,
-  appliedAt: true,
-  updatedAt: true,
-});
-
-export const insertGeneratedJobSchema = createInsertSchema(generatedJobs).omit({
-  id: true,
-  createdAt: true,
-});
-
-export const insertSavedEventSchema = createInsertSchema(savedEvents).omit({
-  id: true,
-  savedAt: true,
-});
-
-export const insertFaqSchema = createInsertSchema(faqs).omit({
-  id: true,
-  createdAt: true,
-});
-
-export const insertTestimonialSchema = createInsertSchema(testimonials).omit({
-  id: true,
-  createdAt: true,
-});
+export const insertUserSchema = createInsertSchema(users);
+export const insertUserProfileSchema = createInsertSchema(userProfiles);
+export const insertSubscriptionSchema = createInsertSchema(subscriptions);
+export const insertCreditsSchema = createInsertSchema(credits);
+export const insertCouponSchema = createInsertSchema(coupons);
+export const insertWalletSchema = createInsertSchema(wallets);
+export const insertWalletTransactionSchema = createInsertSchema(walletTransactions);
+export const insertBookingSchema = createInsertSchema(bookings);
+export const insertBookingMilestoneSchema = createInsertSchema(bookingMilestones);
+export const insertEscrowAccountSchema = createInsertSchema(escrowAccounts);
+export const insertEscrowEventSchema = createInsertSchema(escrowEvents);
+export const insertContractSchema = createInsertSchema(contracts);
+export const insertDisputeSchema = createInsertSchema(disputes);
+export const insertBookingMessageSchema = createInsertSchema(bookingMessages);
+export const insertNotificationSchema = createInsertSchema(notifications);
+export const insertNotificationTemplateSchema = createInsertSchema(notificationTemplates);
+export const insertSmtpSettingsSchema = createInsertSchema(smtpSettings);
+export const insertPushSubscriptionSchema = createInsertSchema(pushSubscriptions);
+export const insertPushSettingsSchema = createInsertSchema(pushSettings);
+export const insertSavedJobSchema = createInsertSchema(savedJobs);
+export const insertAppliedJobSchema = createInsertSchema(appliedJobs);
+export const insertGeneratedJobSchema = createInsertSchema(generatedJobs);
+export const insertSavedEventSchema = createInsertSchema(savedEvents);
+export const insertFaqSchema = createInsertSchema(faqs);
+export const insertTestimonialSchema = createInsertSchema(testimonials);
+export const insertCrowdTranslationSchema = createInsertSchema(crowdTranslations);
+export const insertTrainingTermSchema = createInsertSchema(trainingTerms);
 
 // Types
 export type InsertUser = z.infer<typeof insertUserSchema>;
@@ -634,6 +572,8 @@ export type InsertGeneratedJob = z.infer<typeof insertGeneratedJobSchema>;
 export type InsertSavedEvent = z.infer<typeof insertSavedEventSchema>;
 export type InsertFaq = z.infer<typeof insertFaqSchema>;
 export type InsertTestimonial = z.infer<typeof insertTestimonialSchema>;
+export type InsertCrowdTranslation = z.infer<typeof insertCrowdTranslationSchema>;
+export type InsertTrainingTerm = z.infer<typeof insertTrainingTermSchema>;
 
 export type User = typeof users.$inferSelect;
 export type UserProfile = typeof userProfiles.$inferSelect;
@@ -663,9 +603,12 @@ export type Notification = typeof notifications.$inferSelect;
 export type NotificationTemplate = typeof notificationTemplates.$inferSelect;
 export type SmtpSettings = typeof smtpSettings.$inferSelect;
 export type PushSubscription = typeof pushSubscriptions.$inferSelect;
+export type PushSettings = typeof pushSettings.$inferSelect;
 export type SavedJob = typeof savedJobs.$inferSelect;
 export type AppliedJob = typeof appliedJobs.$inferSelect;
 export type GeneratedJob = typeof generatedJobs.$inferSelect;
 export type SavedEvent = typeof savedEvents.$inferSelect;
 export type Faq = typeof faqs.$inferSelect;
 export type Testimonial = typeof testimonials.$inferSelect;
+export type CrowdTranslation = typeof crowdTranslations.$inferSelect;
+export type TrainingTerm = typeof trainingTerms.$inferSelect;

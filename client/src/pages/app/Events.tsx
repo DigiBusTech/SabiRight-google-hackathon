@@ -9,6 +9,7 @@ import { Calendar, MapPin, Users, Clock, Plus, X, Filter, Bookmark, BookmarkChec
 import { useAuth } from "@/context/AuthContext";
 import { useToast } from "@/hooks/use-toast";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
+import { EmailVerificationPopup } from "@/components/EmailVerificationPopup";
 
 const NIGERIAN_CITIES = [
   "Lagos", "Abuja", "Port Harcourt", "Kano", "Ibadan", "Kaduna", 
@@ -41,6 +42,8 @@ export default function Events() {
   const [selectedCategory, setSelectedCategory] = useState<string | null>(null);
   const [selectedCity, setSelectedCity] = useState<string>("");
   const [showCreateDialog, setShowCreateDialog] = useState(false);
+  const [showVerificationPopup, setShowVerificationPopup] = useState(false);
+  const [verificationAction, setVerificationAction] = useState("");
   const [newEvent, setNewEvent] = useState({
     title: "",
     description: "",
@@ -77,7 +80,7 @@ export default function Events() {
   const createEventMutation = useMutation({
     mutationFn: async (eventData: any) => {
       if (!user) throw new Error('Login required');
-      if (profile?.kycStatus !== 'verified') throw new Error('KYC verification required');
+      if (profile?.emailVerificationStatus !== 'verified') throw new Error('Email verification required');
 
       const idToken = await user.getIdToken();
       const res = await fetch('/api/events', {
@@ -105,7 +108,7 @@ export default function Events() {
   const registerMutation = useMutation({
     mutationFn: async ({ eventId, userId }: { eventId: string; userId: string }) => {
       if (!user) throw new Error('Login required');
-      if (profile?.kycStatus !== 'verified') throw new Error('KYC verification required');
+      if (profile?.emailVerificationStatus !== 'verified') throw new Error('Email verification required');
 
       const idToken = await user.getIdToken();
       const res = await fetch(`/api/events/${eventId}/register`, {
@@ -163,6 +166,13 @@ export default function Events() {
       toast({ title: "Login Required", description: "You must be logged in to create an event." });
       return;
     }
+
+    if (profile?.emailVerificationStatus !== 'verified') {
+      setVerificationAction("host an event");
+      setShowVerificationPopup(true);
+      return;
+    }
+
     if (!newEvent.title || !newEvent.date || !newEvent.time || !newEvent.location) {
       toast({ title: "Error", description: "Please fill all required fields", variant: "destructive" });
       return;
@@ -180,6 +190,12 @@ export default function Events() {
   const handleRegister = (event: Event) => {
     if (!user) {
       toast({ title: "Login Required", description: "Please login to register for events." });
+      return;
+    }
+
+    if (profile?.emailVerificationStatus !== 'verified') {
+      setVerificationAction("register for an event");
+      setShowVerificationPopup(true);
       return;
     }
 
@@ -256,56 +272,56 @@ export default function Events() {
 
   const renderEventCard = (event: Event) => (
     <Card key={event.id} data-testid={`card-event-${event.id}`} className="hover:border-primary/50 transition-all hover:shadow-md overflow-hidden">
-      <CardContent className="p-6">
-        <div className="flex gap-6 items-start">
-          <div className="w-20 h-20 rounded-lg bg-gradient-to-br from-green-100 to-slate-100 flex flex-col items-center justify-center shrink-0">
-            <p className="text-2xl font-bold text-green-700">{new Date(event.date).getDate()}</p>
-            <p className="text-xs font-bold text-slate-600 uppercase">
+      <CardContent className="p-4 md:p-6">
+        <div className="flex flex-col sm:flex-row gap-4 md:gap-6 items-start">
+          <div className="w-16 h-16 md:w-20 md:h-20 rounded-lg bg-gradient-to-br from-green-100 to-slate-100 flex flex-col items-center justify-center shrink-0 self-center sm:self-start">
+            <p className="text-xl md:text-2xl font-bold text-green-700">{new Date(event.date).getDate()}</p>
+            <p className="text-[10px] md:text-xs font-bold text-slate-600 uppercase">
               {new Date(event.date).toLocaleString('default', { month: 'short' })}
             </p>
           </div>
 
-          <div className="flex-1">
-            <div className="flex items-start justify-between mb-2">
+          <div className="flex-1 w-full">
+            <div className="flex flex-col sm:flex-row items-start justify-between mb-2 gap-2">
               <div className="flex-1">
-                <h3 className="text-lg font-bold text-slate-900" data-testid={`text-event-title-${event.id}`}>{event.title}</h3>
-                <p className="text-sm text-slate-600 mt-1">by <span className="font-semibold">{event.organizer}</span></p>
+                <h3 className="text-base md:text-lg font-bold text-slate-900" data-testid={`text-event-title-${event.id}`}>{event.title}</h3>
+                <p className="text-xs md:text-sm text-slate-600 mt-1">by <span className="font-semibold">{event.organizer}</span></p>
               </div>
-              <Badge variant="outline" className="shrink-0 bg-green-50 text-green-700 border-green-200">
+              <Badge variant="outline" className="shrink-0 bg-green-50 text-green-700 border-green-200 text-[10px] md:text-xs">
                 {event.category}
               </Badge>
             </div>
 
-            <div className="grid grid-cols-2 md:grid-cols-4 gap-3 my-4 text-sm text-slate-600">
+            <div className="grid grid-cols-1 xs:grid-cols-2 md:grid-cols-4 gap-2 md:gap-3 my-4 text-xs md:text-sm text-slate-600">
               <div className="flex items-center gap-2">
-                <Clock className="h-4 w-4 text-slate-400" />
+                <Clock className="h-3.5 w-3.5 md:h-4 md:w-4 text-slate-400" />
                 <span>{event.time}</span>
               </div>
               <div className="flex items-center gap-2">
-                <MapPin className="h-4 w-4 text-slate-400" />
-                <span>{event.location}</span>
+                <MapPin className="h-3.5 w-3.5 md:h-4 md:w-4 text-slate-400" />
+                <span className="truncate">{event.location}</span>
               </div>
               <div className="flex items-center gap-2">
-                <Users className="h-4 w-4 text-slate-400" />
+                <Users className="h-3.5 w-3.5 md:h-4 md:w-4 text-slate-400" />
                 <span>{event.attendees} attending</span>
               </div>
               <div className="flex items-center gap-2">
-                <Calendar className="h-4 w-4 text-slate-400" />
+                <Calendar className="h-3.5 w-3.5 md:h-4 md:w-4 text-slate-400" />
                 <span>{new Date(event.date).toLocaleDateString()}</span>
               </div>
             </div>
 
-            <p className="text-sm text-slate-700 mb-4 line-clamp-2">{event.description}</p>
+            <p className="text-xs md:text-sm text-slate-700 mb-4 line-clamp-2">{event.description}</p>
 
-            <div className="flex gap-2">
+            <div className="flex flex-wrap gap-2">
               <Button 
                 data-testid={`button-register-${event.id}`}
                 size="sm" 
                 onClick={() => handleRegister(event)}
                 variant={isUserRegistered(event) ? "secondary" : "default"}
-                className={isUserRegistered(event) ? "bg-green-100 text-green-700 hover:bg-green-200" : "bg-green-600 hover:bg-green-700"}
+                className={isUserRegistered(event) ? "bg-green-100 text-green-700 hover:bg-green-200 text-xs flex-1 sm:flex-none" : "bg-green-600 hover:bg-green-700 text-xs flex-1 sm:flex-none"}
               >
-                <Users className="h-4 w-4 mr-2" />
+                <Users className="h-3.5 w-3.5 md:h-4 md:w-4 mr-2" />
                 {isUserRegistered(event) ? "Registered ✓" : "Register Now"}
               </Button>
               
@@ -315,10 +331,10 @@ export default function Events() {
                   size="sm"
                   variant="outline"
                   onClick={() => handleUnsaveEvent(event)}
-                  className="border-amber-300 text-amber-600 hover:bg-amber-50"
+                  className="border-amber-300 text-amber-600 hover:bg-amber-50 text-xs flex-1 sm:flex-none"
                   disabled={unsaveEventMutation.isPending}
                 >
-                  <BookmarkCheck className="h-4 w-4 mr-2" />
+                  <BookmarkCheck className="h-3.5 w-3.5 md:h-4 md:w-4 mr-2" />
                   Saved
                 </Button>
               ) : (
@@ -328,8 +344,9 @@ export default function Events() {
                   variant="outline"
                   onClick={() => handleSaveEvent(event)}
                   disabled={saveEventMutation.isPending}
+                  className="text-xs flex-1 sm:flex-none"
                 >
-                  <Bookmark className="h-4 w-4 mr-2" />
+                  <Bookmark className="h-3.5 w-3.5 md:h-4 md:w-4 mr-2" />
                   Save
                 </Button>
               )}
@@ -348,6 +365,13 @@ export default function Events() {
 
   return (
     <div className="space-y-8 pb-20">
+      {/* Email Verification Popup */}
+      <EmailVerificationPopup 
+        isOpen={showVerificationPopup} 
+        onClose={() => setShowVerificationPopup(false)} 
+        actionName={verificationAction}
+      />
+
       {!user && (
         <Card className="border-primary/20 bg-primary/5">
           <CardContent className="p-6 text-center">

@@ -10,6 +10,7 @@ import { useAuth } from "@/context/AuthContext";
 import { useToast } from "@/hooks/use-toast";
 import { useQuery, useQueryClient, useMutation } from "@tanstack/react-query";
 import { CreditDisplay } from "@/components/CreditDisplay";
+import { EmailVerificationPopup } from "@/components/EmailVerificationPopup";
 import ReactMarkdown from "react-markdown";
 import { cn } from "@/lib/utils";
 
@@ -41,6 +42,8 @@ interface Job {
   postedAt?: any;
   applicationStatus?: string;
   appliedAt?: string;
+  savedAt?: string;
+  generatedAt?: string;
 }
 
 export default function Jobs() {
@@ -56,6 +59,7 @@ export default function Jobs() {
   const [workMode, setWorkMode] = useState("");
   const [cityFilter, setCityFilter] = useState<string>("");
   const [showPostJob, setShowPostJob] = useState(false);
+  const [showVerificationPopup, setShowVerificationPopup] = useState(false);
   const [isPosting, setIsPosting] = useState(false);
   const [searching, setSearching] = useState(false);
   const [jobForm, setJobForm] = useState({
@@ -97,7 +101,10 @@ export default function Jobs() {
     queryKey: ['savedJobs', user?.uid],
     queryFn: async () => {
       if (!user?.uid) return [];
-      const res = await fetch(`/api/jobs/saved/${user.uid}`);
+      const idToken = await user.getIdToken();
+      const res = await fetch(`/api/jobs/saved/${user.uid}`, {
+        headers: { 'Authorization': `Bearer ${idToken}` }
+      });
       if (!res.ok) return [];
       return res.json();
     },
@@ -108,7 +115,10 @@ export default function Jobs() {
     queryKey: ['savedJobIds', user?.uid],
     queryFn: async () => {
       if (!user?.uid) return [];
-      const res = await fetch(`/api/jobs/saved-ids/${user.uid}`);
+      const idToken = await user.getIdToken();
+      const res = await fetch(`/api/jobs/saved-ids/${user.uid}`, {
+        headers: { 'Authorization': `Bearer ${idToken}` }
+      });
       if (!res.ok) return [];
       return res.json();
     },
@@ -119,7 +129,10 @@ export default function Jobs() {
     queryKey: ['appliedJobs', user?.uid],
     queryFn: async () => {
       if (!user?.uid) return [];
-      const res = await fetch(`/api/jobs/applied/${user.uid}`);
+      const idToken = await user.getIdToken();
+      const res = await fetch(`/api/jobs/applied/${user.uid}`, {
+        headers: { 'Authorization': `Bearer ${idToken}` }
+      });
       if (!res.ok) return [];
       return res.json();
     },
@@ -130,7 +143,10 @@ export default function Jobs() {
     queryKey: ['appliedJobIds', user?.uid],
     queryFn: async () => {
       if (!user?.uid) return [];
-      const res = await fetch(`/api/jobs/applied-ids/${user.uid}`);
+      const idToken = await user.getIdToken();
+      const res = await fetch(`/api/jobs/applied-ids/${user.uid}`, {
+        headers: { 'Authorization': `Bearer ${idToken}` }
+      });
       if (!res.ok) return [];
       return res.json();
     },
@@ -141,7 +157,10 @@ export default function Jobs() {
     queryKey: ['generatedJobs', user?.uid],
     queryFn: async () => {
       if (!user?.uid) return [];
-      const res = await fetch(`/api/jobs/generated/${user.uid}`);
+      const idToken = await user.getIdToken();
+      const res = await fetch(`/api/jobs/generated/${user.uid}`, {
+        headers: { 'Authorization': `Bearer ${idToken}` }
+      });
       if (!res.ok) return [];
       return res.json();
     },
@@ -150,12 +169,19 @@ export default function Jobs() {
 
   const saveJobMutation = useMutation({
     mutationFn: async (jobId: string) => {
+      const idToken = await user?.getIdToken();
       const res = await fetch(`/api/jobs/${jobId}/save`, {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
+        headers: { 
+          'Content-Type': 'application/json',
+          'Authorization': idToken ? `Bearer ${idToken}` : ''
+        },
         body: JSON.stringify({ userId: user?.uid })
       });
-      if (!res.ok) throw new Error('Failed to save job');
+      if (!res.ok) {
+        const errorData = await res.json().catch(() => ({}));
+        throw new Error(errorData.error || 'Failed to save job');
+      }
       return res.json();
     },
     onSuccess: () => {
@@ -163,19 +189,26 @@ export default function Jobs() {
       refetchSavedJobIds();
       toast({ title: "Job Saved", description: "This job has been added to your saved jobs." });
     },
-    onError: () => {
-      toast({ title: "Error", description: "Failed to save job", variant: "destructive" });
+    onError: (error: any) => {
+      toast({ title: "Error", description: error.message || "Failed to save job", variant: "destructive" });
     }
   });
 
   const unsaveJobMutation = useMutation({
     mutationFn: async (jobId: string) => {
+      const idToken = await user?.getIdToken();
       const res = await fetch(`/api/jobs/${jobId}/save`, {
         method: 'DELETE',
-        headers: { 'Content-Type': 'application/json' },
+        headers: { 
+          'Content-Type': 'application/json',
+          'Authorization': idToken ? `Bearer ${idToken}` : ''
+        },
         body: JSON.stringify({ userId: user?.uid })
       });
-      if (!res.ok) throw new Error('Failed to unsave job');
+      if (!res.ok) {
+        const errorData = await res.json().catch(() => ({}));
+        throw new Error(errorData.error || 'Failed to unsave job');
+      }
       return res.json();
     },
     onSuccess: () => {
@@ -183,15 +216,18 @@ export default function Jobs() {
       refetchSavedJobIds();
       toast({ title: "Job Removed", description: "This job has been removed from your saved jobs." });
     },
-    onError: () => {
-      toast({ title: "Error", description: "Failed to remove job", variant: "destructive" });
+    onError: (error: any) => {
+      toast({ title: "Error", description: error.message || "Failed to remove job", variant: "destructive" });
     }
   });
 
   const applyJobMutation = useMutation({
     mutationFn: async (jobId: string) => {
       if (!user) throw new Error('Login required');
-      if (profile?.kycStatus !== 'verified') throw new Error('KYC verification required');
+      if (profile?.emailVerificationStatus !== 'verified') {
+        setShowVerificationPopup(true);
+        throw new Error('Email verification required');
+      }
 
       const idToken = await user.getIdToken();
       const res = await fetch(`/api/jobs/${jobId}/apply`, {
@@ -202,7 +238,10 @@ export default function Jobs() {
         },
         body: JSON.stringify({ userId: user?.uid })
       });
-      if (!res.ok) throw new Error('Failed to apply to job');
+      if (!res.ok) {
+        const errorData = await res.json().catch(() => ({}));
+        throw new Error(errorData.error || 'Failed to apply to job');
+      }
       return res.json();
     },
     onSuccess: () => {
@@ -210,8 +249,8 @@ export default function Jobs() {
       refetchAppliedJobIds();
       toast({ title: "Application Submitted", description: "Your application has been recorded. Good luck!" });
     },
-    onError: () => {
-      toast({ title: "Error", description: "Failed to submit application", variant: "destructive" });
+    onError: (error: any) => {
+      toast({ title: "Error", description: error.message || "Failed to submit application", variant: "destructive" });
     }
   });
 
@@ -239,9 +278,13 @@ export default function Jobs() {
     setSearching(true);
 
     try {
+      const idToken = await user?.getIdToken();
       const response = await fetch('/api/ai/jobs/search', {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
+        headers: { 
+          'Content-Type': 'application/json',
+          'Authorization': idToken ? `Bearer ${idToken}` : ''
+        },
         body: JSON.stringify({
           userId: user?.uid,
           role,
@@ -284,8 +327,9 @@ export default function Jobs() {
       return;
     }
     
-    if (profile?.kycStatus !== 'verified') {
-      toast({ title: "KYC Required", description: "You must be KYC verified to post a job.", variant: "destructive" });
+    if (profile?.emailVerificationStatus !== 'verified') {
+      setShowVerificationPopup(true);
+      toast({ title: "Verification Required", description: "You must be email verified to post a job.", variant: "destructive" });
       return;
     }
 
@@ -347,6 +391,33 @@ export default function Jobs() {
       toast({ title: "Login Required", description: "Please login to apply for jobs." });
       return;
     }
+
+    // Check if it's an external AI-generated job with a contact link/email
+    if (job.source && job.source !== 'User Posted' && job.contact) {
+      const isEmail = job.contact.includes('@') && !job.contact.startsWith('http');
+      
+      if (isEmail) {
+        toast({ 
+          title: "Apply via Email", 
+          description: `To apply for this position, please send your CV to: ${job.contact}`,
+          duration: 10000 
+        });
+        window.open(`mailto:${job.contact}`, '_blank');
+      } else {
+        toast({ 
+          title: "Redirecting to Listing", 
+          description: `Taking you to the original job listing on ${job.source}...`
+        });
+        window.open(job.contact.startsWith('http') ? job.contact : `https://${job.contact}`, '_blank');
+      }
+      
+      // Also record the application in our DB if not already recorded
+      if (!appliedJobIds.includes(job.id)) {
+        applyJobMutation.mutate(job.id);
+      }
+      return;
+    }
+
     if (appliedJobIds.includes(job.id)) {
       if (job.contact) {
         window.open(job.contact.startsWith('http') ? job.contact : `mailto:${job.contact}`, '_blank');
@@ -363,6 +434,17 @@ export default function Jobs() {
       if (cityFilter && !job.location?.toLowerCase().includes(cityFilter.toLowerCase())) return false;
       return true;
     }).sort((a, b) => {
+      // Primary sort: Most recent first (for AI generated and search results)
+      const dateA = a.postedAt || a.appliedAt || a.savedAt || a.generatedAt;
+      const dateB = b.postedAt || b.appliedAt || b.savedAt || b.generatedAt;
+      
+      if (dateA && dateB) {
+        const timeA = new Date(dateA).getTime();
+        const timeB = new Date(dateB).getTime();
+        if (timeA !== timeB) return timeB - timeA;
+      }
+
+      // Secondary sort: User's city
       const aInUserCity = userCity && a.location?.toLowerCase().includes(userCity.toLowerCase());
       const bInUserCity = userCity && b.location?.toLowerCase().includes(userCity.toLowerCase());
       
@@ -880,6 +962,12 @@ export default function Jobs() {
           </Card>
         </div>
       )}
+      {/* Email Verification Popup */}
+      <EmailVerificationPopup 
+        isOpen={showVerificationPopup} 
+        onClose={() => setShowVerificationPopup(false)}
+        actionName="post or apply for jobs"
+      />
     </div>
   );
 }

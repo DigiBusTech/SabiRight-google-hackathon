@@ -70,7 +70,9 @@ export class DatabaseStorage {
     return this.query(async () => {
       const id = randomUUID();
       await db.insert(schema.users).values({ ...insertUser, id });
-      return (await this.getUser(id))!;
+      const newUser = await this.getUser(id);
+      if (!newUser) throw new Error("Failed to create user");
+      return newUser;
     });
   }
 
@@ -127,7 +129,9 @@ export class DatabaseStorage {
     return this.query(async () => {
       const id = randomUUID();
       await db.insert(schema.plans).values({ ...plan, id });
-      return (await this.getPlanById(id))!;
+      const newPlan = await this.getPlanById(id);
+      if (!newPlan) throw new Error("Failed to create plan");
+      return newPlan;
     });
   }
 
@@ -174,7 +178,7 @@ export class DatabaseStorage {
       }
 
       await db.update(schema.credits)
-        .set({ usedCredits: (credits.usedCredits || 0) + amount })
+        .set({ totalCredits: (credits.totalCredits || 0) - amount })
         .where(eq(schema.credits.userId, userId));
 
       await db.insert(schema.creditLog).values({
@@ -196,8 +200,8 @@ export class DatabaseStorage {
       const credits = await this.getUserCredits(userId);
       if (credits) {
         await db.update(schema.credits)
-          .set({ usedCredits: Math.max(0, (credits.usedCredits || 0) - amount) })
-          .where(eq(schema.credits.userId, userId));
+        .set({ totalCredits: (credits.totalCredits || 0) + amount })
+        .where(eq(schema.credits.userId, userId));
         
         await db.insert(schema.creditLog).values({
           id: randomUUID(),
@@ -319,12 +323,55 @@ export class DatabaseStorage {
     });
   }
 
-  // KYC & Vendor
-  async updateUserKYC(userId: string, kycStatus: string, kycDocument?: string): Promise<void> {
+  // Email Verification & Vendor
+  async updateEmailVerificationStatus(userId: string, emailVerificationStatus: string, verificationDocument?: string): Promise<void> {
     return this.query(async () => {
-      const updateData: any = { kycStatus };
-      if (kycDocument) updateData.kycDocument = kycDocument;
+      const updateData: any = { 
+        emailVerificationStatus,
+        emailVerified: emailVerificationStatus === 'verified',
+        emailVerifiedAt: emailVerificationStatus === 'verified' ? new Date() : null
+      };
+      if (verificationDocument) updateData.verificationDocument = verificationDocument;
       await db.update(schema.userProfiles).set(updateData).where(eq(schema.userProfiles.userId, userId));
+    });
+  }
+
+  async setEmailVerificationCode(userId: string, code: string, expires: Date): Promise<void> {
+    return this.query(async () => {
+      await db.update(schema.userProfiles)
+        .set({ 
+          emailVerificationCode: code, 
+          emailVerificationExpires: expires,
+          emailVerificationSentAt: new Date()
+        })
+        .where(eq(schema.userProfiles.userId, userId));
+    });
+  }
+
+  async verifyEmailCode(userId: string, code: string): Promise<boolean> {
+    return this.query(async () => {
+      const profile = await this.getUserProfile(userId);
+      if (!profile) return false;
+
+      if (!profile.emailVerificationCode || profile.emailVerificationCode !== code) {
+        return false;
+      }
+
+      if (profile.emailVerificationExpires && profile.emailVerificationExpires < new Date()) {
+        return false;
+      }
+
+      await this.updateEmailVerificationStatus(userId, 'verified');
+      
+      // Clear code
+      await db.update(schema.userProfiles)
+        .set({ 
+          emailVerificationCode: null, 
+          emailVerificationExpires: null 
+        })
+        .where(eq(schema.userProfiles.userId, userId));
+
+      return true;
     });
   }
 
@@ -349,7 +396,9 @@ export class DatabaseStorage {
           ...updates
         });
       }
-      return (await this.getUserProfile(userId))!;
+      const updatedProfile = await this.getUserProfile(userId);
+      if (!updatedProfile) throw new Error("Failed to update user profile");
+      return updatedProfile;
     });
   }
 
@@ -370,7 +419,9 @@ export class DatabaseStorage {
         ...application,
         status: 'pending'
       });
-      return (await this.getVendorApplication(userId))!;
+      const newApp = await this.getVendorApplication(userId);
+      if (!newApp) throw new Error("Failed to submit vendor application");
+      return newApp;
     });
   }
 
@@ -501,15 +552,17 @@ export class DatabaseStorage {
 
         if (filters.lat && filters.lng) {
           const R = 6371; // Earth's radius in km
+          const fLat = filters.lat;
+          const fLng = filters.lng;
           const servicesWithDistance = results.map(s => {
             const sLat = parseFloat(s.latitude || '0');
             const sLng = parseFloat(s.longitude || '0');
             if (sLat === 0 && sLng === 0) return { ...s, distance: 9999 };
             
-            const dLat = (sLat - filters.lat!) * Math.PI / 180;
-            const dLon = (sLng - filters.lng!) * Math.PI / 180;
+            const dLat = (sLat - fLat) * Math.PI / 180;
+            const dLon = (sLng - fLng) * Math.PI / 180;
             const a = Math.sin(dLat/2) * Math.sin(dLat/2) +
-                      Math.cos(filters.lat! * Math.PI / 180) * Math.cos(sLat * Math.PI / 180) *
+                      Math.cos(fLat * Math.PI / 180) * Math.cos(sLat * Math.PI / 180) *
                       Math.sin(dLon/2) * Math.sin(dLon/2);
             const c = 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1-a));
             return { ...s, distance: R * c };
@@ -517,7 +570,8 @@ export class DatabaseStorage {
           servicesWithDistance.sort((a, b) => (a as any).distance - (b as any).distance);
           return servicesWithDistance as VendorService[];
         } else if (filters.city) {
-          return results.filter(s => s.location?.toLowerCase().includes(filters.city!.toLowerCase()));
+          const cityLower = filters.city.toLowerCase();
+          return results.filter(s => s.location?.toLowerCase().includes(cityLower));
         }
         return results;
       }
@@ -544,7 +598,9 @@ export class DatabaseStorage {
         verified: false,
         isActive: true
       });
-      return (await this.getVendorServiceById(id))!;
+      const newService = await this.getVendorServiceById(id);
+      if (!newService) throw new Error("Failed to create vendor service");
+      return newService;
     });
   }
 
@@ -972,6 +1028,10 @@ export class DatabaseStorage {
         title = this.substituteVariables(template.subject, variables || {});
         message = this.substituteVariables(template.bodyTemplate, variables || {});
       }
+    }
+
+    if (options.channels?.includes('email')) {
+      console.log(`[Email Mock] Verification/Notification for ${userId}: ${title} - ${message}`);
     }
 
     return this.createNotification({

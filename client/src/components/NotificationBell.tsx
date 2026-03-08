@@ -28,7 +28,7 @@ const typeIcons: Record<string, React.ReactNode> = {
   event: <Calendar className="h-4 w-4 text-purple-500" />,
   job: <Briefcase className="h-4 w-4 text-orange-500" />,
   system: <Info className="h-4 w-4 text-slate-500" />,
-  kyc: <AlertTriangle className="h-4 w-4 text-yellow-500" />,
+  email_verification: <AlertTriangle className="h-4 w-4 text-yellow-500" />,
 };
 
 export default function NotificationBell() {
@@ -39,21 +39,34 @@ export default function NotificationBell() {
   const [open, setOpen] = useState(false);
 
   const fetchNotifications = async () => {
-    if (!user) return;
+    if (!user?.uid) return;
     
     setLoading(true);
     try {
       const token = await user.getIdToken();
-      const res = await fetch(`/api/notifications/${user.uid}?limit=10`, {
-        headers: { Authorization: `Bearer ${token}` },
+      const apiUrl = `/api/notifications/${user.uid}?limit=10`;
+      
+      const res = await fetch(apiUrl, {
+        headers: { 
+          'Authorization': `Bearer ${token}`,
+          'Accept': 'application/json'
+        }
       });
+      
       if (res.ok) {
         const data = await res.json();
         setNotifications(data.notifications || []);
         setUnreadCount(data.unreadCount || 0);
+      } else {
+        const errorText = await res.text();
+        console.error(`[NotificationBell] Server error (${res.status}):`, errorText);
       }
     } catch (error) {
-      console.error("Failed to fetch notifications:", error);
+      console.error("[NotificationBell] Network or Fetch error:", error);
+      // If we get connection refused, maybe the API base path is wrong or server is down
+      if (error instanceof TypeError && error.message.includes('fetch')) {
+        console.warn("[NotificationBell] Possible connection issue. Check if server is running on the same port.");
+      }
     } finally {
       setLoading(false);
     }

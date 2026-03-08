@@ -26,7 +26,7 @@ const typeIcons: Record<string, React.ReactNode> = {
   event: <Calendar className="h-5 w-5 text-purple-500" />,
   job: <Briefcase className="h-5 w-5 text-orange-500" />,
   system: <Info className="h-5 w-5 text-slate-500" />,
-  kyc: <AlertTriangle className="h-5 w-5 text-yellow-500" />,
+  verification: <AlertTriangle className="h-5 w-5 text-yellow-500" />,
 };
 
 const typeLabels: Record<string, string> = {
@@ -36,7 +36,7 @@ const typeLabels: Record<string, string> = {
   event: "Events",
   job: "Jobs",
   system: "System",
-  kyc: "KYC",
+  verification: "Verification",
 };
 
 export default function Notifications() {

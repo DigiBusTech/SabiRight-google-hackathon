@@ -12,7 +12,7 @@ import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { useToast } from "@/hooks/use-toast";
 import { loadStripe } from "@stripe/stripe-js";
 import { Elements, PaymentElement, useStripe, useElements } from "@stripe/react-stripe-js";
-import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/components/ui/dialog";
+import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 import ReCAPTCHA from "react-google-recaptcha";
 
 // Declare Paystack and Flutterwave popup types
@@ -118,14 +118,7 @@ export default function Payment() {
   }, []);
 
   useEffect(() => {
-    console.log('Payment Page Parameters:', {
-      paymentType,
-      amount,
-      credits,
-      planId,
-      rawAmount: searchParams.get('amount'),
-      location
-    });
+    // Debug: Log payment parameters removed for production
   }, [paymentType, amount, credits, planId]);
 
   // Load Paystack and Flutterwave inline scripts
@@ -198,19 +191,6 @@ export default function Payment() {
 
   // Count total active payment methods
   const totalActiveMethods = automaticGateways.length + manualMethods.length;
-
-  // Debug: Log payment methods
-  useEffect(() => {
-    console.log('=== PAYMENT PAGE DEBUG ===');
-    console.log('All Payment Methods:', allPaymentMethods);
-    console.log('Automatic Gateways:', automaticGateways);
-    console.log('Manual Methods:', manualMethods);
-    console.log('Paystack:', paystackGateway);
-    console.log('Flutterwave:', flutterwaveGateway);
-    console.log('Stripe:', stripeGateway);
-    console.log('Total Active Methods:', totalActiveMethods);
-    console.log('========================');
-  }, [allPaymentMethods, automaticGateways, manualMethods, totalActiveMethods]);
 
   const walletBalance = wallet ? parseFloat(wallet.balance) : 0;
   const canPayWithWallet = walletBalance >= amount;
@@ -504,14 +484,6 @@ export default function Payment() {
       // Initiate payment to create payment record
       initiatePayment.mutate(paymentData, {
         onSuccess: (data: any) => {
-          // Debug: Log flutterwaveGateway and public key
-          console.log('=== FLUTTERWAVE PAYMENT DEBUG ===');
-          console.log('flutterwaveGateway:', flutterwaveGateway);
-          console.log('flutterwaveGateway?.publicKey:', flutterwaveGateway?.publicKey);
-          console.log('allPaymentMethods:', allPaymentMethods);
-          console.log('automaticGateways:', automaticGateways);
-          console.log('================================');
-
           // Get public key from flutterwaveGateway
           const publicKey = flutterwaveGateway?.publicKey;
           
@@ -525,8 +497,6 @@ export default function Payment() {
             });
             return;
           }
-
-          console.log('Using public key:', publicKey);
 
           // Open Flutterwave modal
           window.FlutterwaveCheckout({
@@ -975,6 +945,9 @@ export default function Payment() {
         <DialogContent>
             <DialogHeader>
                 <DialogTitle>Complete Payment with Stripe</DialogTitle>
+                <DialogDescription>
+                    Please provide your payment details to complete the transaction securely via Stripe.
+                </DialogDescription>
             </DialogHeader>
             {stripeClientSecret && stripePromise && (
                 <Elements stripe={stripePromise} options={{ clientSecret: stripeClientSecret }}>

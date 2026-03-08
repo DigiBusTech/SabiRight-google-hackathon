@@ -2,11 +2,12 @@ import { useState } from "react";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
-import { Coins, Zap, CheckCircle2 } from "lucide-react";
+import { Coins, Zap, CheckCircle2, Languages } from "lucide-react";
 import { useAuth } from "@/context/AuthContext";
 import { useLocation } from "wouter";
 import { useQuery } from "@tanstack/react-query";
 import { useToast } from "@/hooks/use-toast";
+import { SabiContributorModal } from "@/components/SabiContributorModal";
 
 interface CreditPlan {
   id: string;
@@ -23,6 +24,7 @@ export default function Credits() {
   const { user } = useAuth();
   const [, setLocation] = useLocation();
   const { toast } = useToast();
+  const [showSabiModal, setShowSabiModal] = useState(false);
 
   // Fetch available credit packages from admin settings
   const { data: creditPlans = [] } = useQuery<CreditPlan[]>({
@@ -178,36 +180,73 @@ export default function Credits() {
       </div>
 
       {/* How Credits Work */}
-      <Card className="border-2 border-blue-200 bg-blue-50/50">
-        <CardHeader>
-          <CardTitle className="text-lg flex items-center gap-2">
-            <Zap className="h-5 w-5 text-blue-600" />
-            How Credits Work
-          </CardTitle>
-        </CardHeader>
-        <CardContent className="space-y-3 text-sm">
-          <div className="flex items-start gap-2">
-            <CheckCircle2 className="h-4 w-4 text-blue-600 mt-0.5 flex-shrink-0" />
-            <p><strong>AI Legal Queries:</strong> Each SabiDoctor AI query costs 1 credit</p>
-          </div>
-          <div className="flex items-start gap-2">
-            <CheckCircle2 className="h-4 w-4 text-blue-600 mt-0.5 flex-shrink-0" />
-            <p><strong>Job Applications:</strong> Apply to premium jobs for 2 credits each</p>
-          </div>
-          <div className="flex items-start gap-2">
-            <CheckCircle2 className="h-4 w-4 text-blue-600 mt-0.5 flex-shrink-0" />
-            <p><strong>Marketplace Listings:</strong> Feature your listing for 5 credits</p>
-          </div>
-          <div className="flex items-start gap-2">
-            <CheckCircle2 className="h-4 w-4 text-blue-600 mt-0.5 flex-shrink-0" />
-            <p><strong>Earn Free Credits:</strong> Get credits by posting content, receiving likes, and referrals</p>
-          </div>
-          <div className="flex items-start gap-2">
-            <CheckCircle2 className="h-4 w-4 text-blue-600 mt-0.5 flex-shrink-0" />
-            <p><strong>No Expiry:</strong> Credits remain valid as long as your account is active</p>
-          </div>
-        </CardContent>
-      </Card>
+      <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+        <Card className="border-2 border-blue-200 bg-blue-50/50">
+          <CardHeader>
+            <CardTitle className="text-lg flex items-center gap-2">
+              <Zap className="h-5 w-5 text-blue-600" />
+              How Credits Work
+            </CardTitle>
+          </CardHeader>
+          <CardContent className="space-y-3 text-sm">
+            <div className="flex items-start gap-2">
+              <CheckCircle2 className="h-4 w-4 text-blue-600 mt-0.5 flex-shrink-0" />
+              <p><strong>SabiGuard AI:</strong> Each SabiGuard legal query costs 5 credits</p>
+            </div>
+            <div className="flex items-start gap-2">
+              <CheckCircle2 className="h-4 w-4 text-blue-600 mt-0.5 flex-shrink-0" />
+              <p><strong>Civic AI:</strong> Standard civic education queries cost 1 credit</p>
+            </div>
+            <div className="flex items-start gap-2">
+              <CheckCircle2 className="h-4 w-4 text-blue-600 mt-0.5 flex-shrink-0" />
+              <p><strong>SabiMove:</strong> Advanced route planning costs 3 credits</p>
+            </div>
+            <div className="flex items-start gap-2">
+              <CheckCircle2 className="h-4 w-4 text-blue-600 mt-0.5 flex-shrink-0" />
+              <p><strong>Job Search:</strong> AI job search and recommendations cost 2 credits</p>
+            </div>
+            <div className="flex items-start gap-2">
+              <CheckCircle2 className="h-4 w-4 text-blue-600 mt-0.5 flex-shrink-0" />
+              <p><strong>Daily Bonus:</strong> Log in daily to receive free credits!</p>
+            </div>
+          </CardContent>
+        </Card>
+
+        <Card className="border-2 border-green-200 bg-green-50/50">
+          <CardHeader>
+            <CardTitle className="text-lg flex items-center gap-2 text-green-700">
+              <Languages className="h-5 w-5" />
+              Earn Free Credits
+            </CardTitle>
+          </CardHeader>
+          <CardContent className="space-y-4">
+            <p className="text-sm text-slate-600">
+              Help us train our AI model in local Nigerian languages and earn credits for every contribution.
+            </p>
+            <div className="space-y-2">
+              <div className="flex items-center gap-2 text-sm text-slate-700">
+                <Badge className="bg-green-100 text-green-700 hover:bg-green-100">+5 Credits</Badge>
+                <span>For each verified translation</span>
+              </div>
+              <div className="flex items-center gap-2 text-sm text-slate-700">
+                <Badge className="bg-blue-100 text-blue-700 hover:bg-blue-100">+2 Credits</Badge>
+                <span>For each verification vote</span>
+              </div>
+            </div>
+            <Button 
+              className="w-full bg-green-600 hover:bg-green-700 mt-2"
+              onClick={() => setShowSabiModal(true)}
+            >
+              Start Contributing
+            </Button>
+          </CardContent>
+        </Card>
+      </div>
+
+      <SabiContributorModal
+        isOpen={showSabiModal}
+        onClose={() => setShowSabiModal(false)}
+      />
     </div>
   );
 }

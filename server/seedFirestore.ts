@@ -1,4 +1,6 @@
 import admin from 'firebase-admin';
+import fs from 'fs';
+import path from 'path';
 
 const FIREBASE_APP_ID = process.env.FIREBASE_APP_ID || 'legal-13d13';
 
@@ -8,11 +10,20 @@ function initializeFirebase() {
   }
   
   const serviceAccountJson = process.env.FIREBASE_SERVICE_ACCOUNT;
-  if (!serviceAccountJson) {
-    throw new Error('FIREBASE_SERVICE_ACCOUNT environment variable is not set');
+  let serviceAccount;
+
+  if (serviceAccountJson) {
+    serviceAccount = JSON.parse(serviceAccountJson);
+  } else {
+    const filePath = path.join(process.cwd(), 'legal-13d13-firebase-adminsdk-fbsvc-e736182a52.json');
+    if (fs.existsSync(filePath)) {
+      serviceAccount = JSON.parse(fs.readFileSync(filePath, 'utf8'));
+    }
   }
-  
-  const serviceAccount = JSON.parse(serviceAccountJson);
+
+  if (!serviceAccount) {
+    throw new Error('FIREBASE_SERVICE_ACCOUNT environment variable is not set and local service account file not found');
+  }
   
   return admin.initializeApp({
     credential: admin.credential.cert(serviceAccount),
@@ -33,6 +44,8 @@ const collections = {
   vendorServices: () => db.collection('artifacts').doc(FIREBASE_APP_ID).collection('vendorServices'),
   vendorApplications: () => db.collection('artifacts').doc(FIREBASE_APP_ID).collection('vendorApplications'),
   adminSettings: () => db.collection('artifacts').doc(FIREBASE_APP_ID).collection('adminSettings'),
+  surveys: () => db.collection('artifacts').doc(FIREBASE_APP_ID).collection('surveys'),
+  trainingTerms: () => db.collection('artifacts').doc(FIREBASE_APP_ID).collection('trainingTerms'),
 };
 
 async function seedData() {
@@ -89,9 +102,9 @@ async function seedData() {
 
   // Seed User Profiles
   const profiles = [
-    { userId: 'admin-001', email: 'admin@digitalcitizen.ng', displayName: 'Admin User', isVendor: false, kycStatus: 'verified', vendorMode: false, isAdmin: true, createdAt: new Date() },
-    { userId: 'user-001', email: 'user@example.com', displayName: 'Test User', isVendor: false, kycStatus: 'pending', vendorMode: false, isAdmin: false, createdAt: new Date() },
-    { userId: 'vendor-001', email: 'vendor@example.com', displayName: 'Vendor Test', isVendor: true, kycStatus: 'verified', vendorMode: true, isAdmin: false, createdAt: new Date() },
+    { userId: 'admin-001', email: 'admin@digitalcitizen.ng', displayName: 'Admin User', isVendor: false, emailVerificationStatus: 'verified', vendorMode: false, isAdmin: true, createdAt: new Date() },
+    { userId: 'user-001', email: 'user@example.com', displayName: 'Test User', isVendor: false, emailVerificationStatus: 'pending', vendorMode: false, isAdmin: false, createdAt: new Date() },
+    { userId: 'vendor-001', email: 'vendor@example.com', displayName: 'Vendor Test', isVendor: true, emailVerificationStatus: 'verified', vendorMode: true, isAdmin: false, createdAt: new Date() },
   ];
 
   for (const profile of profiles) {
@@ -132,7 +145,7 @@ async function seedData() {
     businessDocument: 'CAC-REG-12345',
     taxId: 'TIN-98765432',
     status: 'approved',
-    kycStatus: 'verified',
+    emailVerificationStatus: 'verified',
     createdAt: new Date(),
     approvedAt: new Date(),
   });
@@ -256,6 +269,32 @@ async function seedData() {
   for (const event of events) {
     await collections.events().doc(event.id).set(event);
     console.log(`Created event: ${event.title}`);
+  }
+
+  // Seed Surveys
+  const surveysData = [
+    { id: 'srv-001', userId: 'user-001', feature: 'ai-legal-help', rating: 5, feedback: 'Very helpful, saved me a lot of time!', createdAt: new Date().toISOString() },
+    { id: 'srv-002', userId: 'user-001', feature: 'marketplace', rating: 4, feedback: 'Good selection of services.', createdAt: new Date().toISOString() },
+    { id: 'srv-003', userId: 'vendor-001', feature: 'vendor-dashboard', rating: 5, feedback: 'Easy to manage my services.', createdAt: new Date().toISOString() },
+    { id: 'srv-004', userId: 'user-001', feature: 'civic-info', rating: 3, feedback: 'Need more local government info.', createdAt: new Date().toISOString() },
+  ];
+
+  for (const survey of surveysData) {
+    await collections.surveys().doc(survey.id).set(survey);
+    console.log(`Created survey for: ${survey.feature}`);
+  }
+
+  // Seed Training Terms
+  const trainingTerms = [
+    { id: 'term-001', term: 'Affidavit', category: 'legal', context: 'Used in court filings', createdAt: new Date().toISOString() },
+    { id: 'term-002', term: 'Power of Attorney', category: 'legal', context: 'Giving legal authority to someone else', createdAt: new Date().toISOString() },
+    { id: 'term-003', term: 'Civic Responsibility', category: 'civic', context: 'Duties of a citizen', createdAt: new Date().toISOString() },
+    { id: 'term-004', term: 'Statutory Declaration', category: 'legal', context: 'Formal statement made to be true', createdAt: new Date().toISOString() },
+  ];
+
+  for (const term of trainingTerms) {
+    await collections.trainingTerms().doc(term.id).set(term);
+    console.log(`Created training term: ${term.term}`);
   }
 
   console.log('\n✅ Firestore seeding completed successfully!');

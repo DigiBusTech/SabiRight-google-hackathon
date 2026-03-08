@@ -71,8 +71,11 @@ export default function AISuggestions({ isOpen, onClose }: AISuggestionsProps) {
   const { data: savedEventIds = [] } = useQuery({
     queryKey: ["savedEvents", user?.uid],
     queryFn: async () => {
-      if (!user?.uid) return [];
-      const res = await fetch(`/api/events/saved/${user.uid}`);
+      if (!user) return [];
+      const token = await user.getIdToken();
+      const res = await fetch(`/api/events/saved/${user.uid}`, {
+        headers: { Authorization: `Bearer ${token}` }
+      });
       return res.ok ? res.json() : [];
     },
     enabled: !!user?.uid,
@@ -89,8 +92,11 @@ export default function AISuggestions({ isOpen, onClose }: AISuggestionsProps) {
   const { data: savedJobs = [] } = useQuery({
     queryKey: ["savedJobs", user?.uid],
     queryFn: async () => {
-      if (!user?.uid) return [];
-      const res = await fetch(`/api/jobs/saved/${user.uid}`);
+      if (!user) return [];
+      const token = await user.getIdToken();
+      const res = await fetch(`/api/jobs/saved/${user.uid}`, {
+        headers: { Authorization: `Bearer ${token}` }
+      });
       return res.ok ? res.json() : [];
     },
     enabled: !!user?.uid,
@@ -99,8 +105,11 @@ export default function AISuggestions({ isOpen, onClose }: AISuggestionsProps) {
   const { data: appliedJobs = [] } = useQuery({
     queryKey: ["appliedJobs", user?.uid],
     queryFn: async () => {
-      if (!user?.uid) return [];
-      const res = await fetch(`/api/jobs/applied/${user.uid}`);
+      if (!user) return [];
+      const token = await user.getIdToken();
+      const res = await fetch(`/api/jobs/applied/${user.uid}`, {
+        headers: { Authorization: `Bearer ${token}` }
+      });
       return res.ok ? res.json() : [];
     },
     enabled: !!user?.uid,

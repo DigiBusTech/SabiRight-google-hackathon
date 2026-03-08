@@ -28,12 +28,10 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
       setUser(user);
       if (user) {
         try {
-          console.log(`[AuthContext] Fetching profile for user: ${user.uid}`);
           let res = await fetch(`/api/profile/${user.uid}`);
           let data = res.ok ? await res.json() : null;
           
           if (!data || !data.userId) {
-            console.log(`[AuthContext] No profile found, creating one for: ${user.uid}`);
             res = await fetch(`/api/profile/${user.uid}`, {
               method: 'POST',
               headers: { 'Content-Type': 'application/json' },
@@ -45,10 +43,6 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
             data = res.ok ? await res.json() : null;
           }
           
-          console.log(`[AuthContext] Profile loaded for ${user.uid}:`, { 
-            isAdmin: data?.isAdmin, 
-            isVendor: data?.isVendor 
-          });
           setProfile(data);
         } catch (error) {
           console.error("[AuthContext] Failed to fetch profile:", error);

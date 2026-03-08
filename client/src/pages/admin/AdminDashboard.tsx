@@ -1,29 +1,58 @@
-import { useState } from "react";
+import { useState, useEffect } from "react";
+import { Link, useLocation } from "wouter";
+import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
+import { useToast } from "@/hooks/use-toast";
+import { auth } from "@/lib/firebase";
+import { useAuth } from "@/context/AuthContext";
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Badge } from "@/components/ui/badge";
+import { Label } from "@/components/ui/label";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { Switch } from "@/components/ui/switch";
+import { 
+  Select, 
+  SelectContent, 
+  SelectItem, 
+  SelectTrigger, 
+  SelectValue 
+} from "@/components/ui/select";
+import {
+  Dialog,
+  DialogContent,
+  DialogDescription,
+  DialogFooter,
+  DialogHeader,
+  DialogTitle,
+  DialogTrigger,
+} from "@/components/ui/dialog";
+import { motion, AnimatePresence } from "framer-motion";
+import { cn } from "@/lib/utils";
 import { 
   BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, Legend, ResponsiveContainer, 
   LineChart, Line, PieChart, Pie, Cell, AreaChart, Area
 } from 'recharts';
 import { 
   Settings, Users, CreditCard, MapPin, Calendar, Briefcase, Store, 
-  Shield, Key, CheckCircle2, XCircle, Eye, EyeOff, Save, Bell, Mail, Trash2, Plus, Edit, Building2, Coins,
-  BarChart3, Download, FileSpreadsheet, FileText, Flag, LogIn, User, ChevronRight, HelpCircle, MessageSquare, Upload
+  Shield, Key, CheckCircle2, XCircle, Eye, EyeOff, Save, Bell, Mail, Trash2, Plus, Edit, Building2, Coins, ShieldCheck,
+  BarChart3, Download, FileSpreadsheet, FileText, Flag, LogIn, User, ChevronRight, HelpCircle, MessageSquare, Upload,
+  Menu, X, ChevronLeft, LayoutDashboard, Search, Filter, RefreshCcw, Copy, Check, Languages, BrainCircuit, Star, Smartphone, AlertTriangle
 } from "lucide-react";
-import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter, DialogDescription } from "@/components/ui/dialog";
-import { Checkbox } from "@/components/ui/checkbox";
+import { 
+  Table, 
+  TableBody, 
+  TableCell, 
+  TableHead, 
+  TableHeader, 
+  TableRow 
+} from "@/components/ui/table";
+import { Sheet, SheetContent, SheetTrigger, SheetHeader, SheetTitle, SheetDescription } from "@/components/ui/sheet";
+import { ScrollArea } from "@/components/ui/scroll-area";
 import { Textarea } from "@/components/ui/textarea";
-import { Label } from "@/components/ui/label";
-import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
-import { useToast } from "@/hooks/use-toast";
-import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
-import { useAuth } from "@/context/AuthContext";
-import { auth } from "@/lib/firebase";
-import { Link, useLocation } from "wouter";
+import { Checkbox } from "@/components/ui/checkbox";
+import ReactQuill from 'react-quill-new';
+import 'react-quill-new/dist/quill.snow.css';
 
 const getAdminHeaders = async () => {
   const token = await auth.currentUser?.getIdToken();
@@ -31,6 +60,19 @@ const getAdminHeaders = async () => {
     'Content-Type': 'application/json',
     'Authorization': token ? `Bearer ${token}` : ''
   };
+};
+
+const formatFirestoreDate = (date: any) => {
+  if (!date) return new Date();
+  if (date instanceof Date) return date;
+  if (typeof date === 'object' && '_seconds' in date) {
+    return new Date(date._seconds * 1000);
+  }
+  if (typeof date === 'object' && 'seconds' in date) {
+    return new Date(date.seconds * 1000);
+  }
+  const d = new Date(date);
+  return isNaN(d.getTime()) ? new Date() : d;
 };
 
 const PaymentItem = ({ payment, isManual }: { payment: any; isManual: boolean }) => {
@@ -91,7 +133,7 @@ const PaymentItem = ({ payment, isManual }: { payment: any; isManual: boolean })
           <p className="text-xs md:text-sm text-slate-500">{payment?.description || 'No description'}</p>
           <div className="flex items-center gap-2 mt-1">
             <p className="text-[10px] md:text-xs text-slate-400">
-              {payment?.createdAt ? new Date(payment.createdAt).toLocaleString() : 'Date unknown'}
+              {payment?.createdAt ? formatFirestoreDate(payment.createdAt).toLocaleString() : 'Date unknown'}
             </p>
             <span className="text-[10px] text-slate-300">|</span>
             <p className="text-[10px] text-slate-400">Method: {payment?.paymentMethod || 'Unknown'}</p>
@@ -198,9 +240,262 @@ export default function AdminDashboard() {
   const [searchQuery, setSearchQuery] = useState("");
   const [selectedUserForStorage, setSelectedUserForStorage] = useState<string | null>(null);
   const [storageAmount, setStorageAmount] = useState("");
-
+  const [isSidebarCollapsed, setIsSidebarCollapsed] = useState(false);
+  const [activeTab, setActiveTab] = useState("settings");
+  const [frontendPage, setFrontendPage] = useState("homepage");
+  const [isMobileMenuOpen, setIsMobileMenuOpen] = useState(false);
+  const [copiedKey, setCopiedKey] = useState<string | null>(null);
+  const [localSettings, setLocalSettings] = useState<Record<string, string>>({});
   const [setupKey, setSetupKey] = useState("");
   const [isSettingUp, setIsSettingUp] = useState(false);
+  const [isAddingTrainingTerm, setIsAddingTrainingTerm] = useState(false);
+  const [newTrainingTerm, setNewTrainingTerm] = useState({ term: "", category: "legal", context: "" });
+  const [timeRange, setTimeRange] = useState("all");
+  const [customStartDate, setCustomStartDate] = useState<string>("");
+  const [customEndDate, setCustomEndDate] = useState<string>("");
+
+  const filterDataByTimeRange = (data: any[], dateField: string = 'createdAt') => {
+    if (!data) return [];
+    if (timeRange === "all") return data;
+    
+    const now = new Date();
+    let startDate: Date;
+
+    switch (timeRange) {
+      case "24h":
+        startDate = new Date(now.getTime() - 24 * 60 * 60 * 1000);
+        break;
+      case "1w":
+        startDate = new Date(now.getTime() - 7 * 24 * 60 * 60 * 1000);
+        break;
+      case "1m":
+        startDate = new Date(now.getTime() - 30 * 24 * 60 * 60 * 1000);
+        break;
+      case "3m":
+        startDate = new Date(now.getTime() - 90 * 24 * 60 * 60 * 1000);
+        break;
+      case "6m":
+        startDate = new Date(now.getTime() - 180 * 24 * 60 * 60 * 1000);
+        break;
+      case "1y":
+        startDate = new Date(now.getTime() - 365 * 24 * 60 * 60 * 1000);
+        break;
+      case "custom":
+        if (!customStartDate) return data;
+        startDate = new Date(customStartDate);
+        const endDate = customEndDate ? new Date(customEndDate) : new Date();
+        endDate.setHours(23, 59, 59, 999);
+        return data.filter(item => {
+          const itemDate = formatFirestoreDate(item[dateField]);
+          return itemDate >= startDate && itemDate <= endDate;
+        });
+      default:
+        return data;
+    }
+
+    return data.filter(item => {
+      const itemDate = formatFirestoreDate(item[dateField]);
+      return itemDate >= startDate;
+    });
+  };
+
+  const handleCopy = (text: string, key: string) => {
+    if (!text) return;
+    navigator.clipboard.writeText(text);
+    setCopiedKey(key);
+    setTimeout(() => setCopiedKey(null), 2000);
+    toast({ title: "Copied", description: "API Key copied to clipboard" });
+  };
+
+  const getSetting = (key: string) => {
+    return settings.find((s: any) => s.key === key)?.value || "";
+  };
+
+  const handleSettingChange = (key: string, value: string) => {
+    setLocalSettings(prev => ({ ...prev, [key]: value }));
+  };
+
+  const handleExportMoatData = () => {
+    if (!moatItems || moatItems.length === 0) {
+      toast({
+        title: "No Data",
+        description: "There is no MOAT data to export.",
+        variant: "destructive"
+      });
+      return;
+    }
+
+    const dataStr = JSON.stringify(moatItems, null, 2);
+    const blob = new Blob([dataStr], { type: 'application/json' });
+    const url = URL.createObjectURL(blob);
+    
+    const exportFileDefaultName = `moat_data_export_${new Date().toISOString().split('T')[0]}.json`;
+    
+    const linkElement = document.createElement('a');
+    linkElement.setAttribute('href', url);
+    linkElement.setAttribute('download', exportFileDefaultName);
+    linkElement.click();
+    
+    URL.revokeObjectURL(url);
+    
+    toast({
+      title: "Success",
+      description: "MOAT data exported successfully as JSON"
+    });
+  };
+
+  const handleSaveSetting = (key: string, category: string, isSecret: boolean = false) => {
+     const value = localSettings[key] ?? getSetting(key);
+ 
+     // Validation for SEO keywords
+     if (key === 'seo_keywords' && value) {
+       if (!value.includes(',')) {
+         toast({ 
+           title: "Format Suggestion", 
+           description: "Consider using comma-separated keywords for better SEO results.", 
+           variant: "default" 
+         });
+       }
+     }
+ 
+     saveSetting.mutate({ key, value, category, isSecret });
+   };
+
+  const handleFileUpload = async (e: React.ChangeEvent<HTMLInputElement>, key: string) => {
+    const file = e.target.files?.[0];
+    if (!file) return;
+
+    const formData = new FormData();
+    formData.append('file', file);
+
+    try {
+      const res = await fetch('/api/upload', {
+        method: 'POST',
+        body: formData
+      });
+      const data = await res.json();
+      if (data.url) {
+        handleSettingChange(key, data.url);
+        toast({ title: "Uploaded", description: "File uploaded successfully. Click save to apply." });
+      }
+    } catch (err) {
+      toast({ title: "Upload Failed", description: "Failed to upload file", variant: "destructive" });
+    }
+  };
+
+  const ApiKeyField = ({ label, id, category, placeholder, isSecret = true, description }: any) => {
+    const value = localSettings[id] ?? getSetting(id);
+    const isCopied = copiedKey === id;
+
+    return (
+      <div className="space-y-2">
+        <Label className="flex items-center justify-between text-xs font-semibold text-slate-700">
+          {label}
+          <div className="flex items-center gap-1">
+            {isSecret && (
+              <Button 
+                variant="ghost" 
+                size="icon" 
+                className="h-6 w-6 text-slate-400 hover:text-primary" 
+                onClick={() => setShowSecrets(!showSecrets)}
+              >
+                {showSecrets ? <EyeOff className="h-3 w-3" /> : <Eye className="h-3 w-3" />}
+              </Button>
+            )}
+            <Button 
+              variant="ghost" 
+              size="icon" 
+              className="h-6 w-6 text-slate-400 hover:text-primary" 
+              onClick={() => handleCopy(value, id)}
+              disabled={!value}
+            >
+              {isCopied ? <Check className="h-3 w-3 text-green-500" /> : <Copy className="h-3 w-3" />}
+            </Button>
+          </div>
+        </Label>
+        <div className="flex gap-2">
+          <div className="relative flex-1">
+            <Input
+              id={id}
+              type={isSecret && !showSecrets ? "password" : "text"}
+              placeholder={placeholder}
+              value={value}
+              onChange={(e) => handleSettingChange(id, e.target.value)}
+              className="h-9 text-sm pr-10"
+            />
+            {value && (
+              <div className="absolute right-3 top-1/2 -translate-y-1/2">
+                <div className={cn(
+                  "h-2 w-2 rounded-full",
+                  value.length > 10 ? "bg-green-500" : "bg-amber-500"
+                )} />
+              </div>
+            )}
+          </div>
+          <Button 
+            size="sm" 
+            className="h-9 px-3"
+            onClick={() => handleSaveSetting(id, category, isSecret)}
+          >
+            <Save className="h-4 w-4" />
+          </Button>
+        </div>
+        {description && <p className="text-[10px] text-slate-500">{description}</p>}
+      </div>
+    );
+  };
+
+  const NAV_CATEGORIES = [
+    {
+      title: "Core",
+      items: [
+        { id: "settings", label: "General Settings", icon: Settings },
+        { id: "api-keys", label: "API Keys", icon: Key },
+              { id: "email-templates", label: "Email Templates", icon: Mail },
+              { id: "analytics", label: "Analytics", icon: BarChart3 },
+      ]
+    },
+    {
+      title: "Financial",
+      items: [
+        { id: "plans", label: "Plans", icon: CreditCard },
+        { id: "credits", label: "Credits", icon: Coins },
+        { id: "payment-methods", label: "Payment Methods", icon: Building2 },
+        { id: "payments", label: "Transactions", icon: CreditCard },
+        { id: "escrow", label: "Escrow", icon: Shield },
+      ]
+    },
+    {
+      title: "Management",
+      items: [
+        { id: "users", label: "Users", icon: Users },
+        { id: "vendors", label: "Vendors", icon: Store },
+        { id: "vendor-services", label: "Services", icon: Briefcase },
+      ]
+    },
+    {
+      title: "Content",
+      items: [
+        { id: "frontend", label: "Frontend Management", icon: LayoutDashboard },
+        { id: "jobs", label: "Jobs", icon: Briefcase },
+        { id: "events", label: "Events", icon: Calendar },
+        { id: "training", label: "AI Training", icon: BrainCircuit },
+        { id: "faqs", label: "FAQs", icon: HelpCircle },
+        { id: "testimonials", label: "Reviews", icon: MessageSquare },
+        { id: "flagged-posts", label: "Flagged Posts", icon: Flag },
+      ]
+    },
+    {
+      title: "System",
+      items: [
+        { id: "notifications", label: "Notifications", icon: Bell },
+        { id: "moat", label: "MOAT", icon: Shield },
+        { id: "surveys", label: "Adoption", icon: MessageSquare },
+      ]
+    }
+  ];
+
+  const NAV_ITEMS = NAV_CATEGORIES.flatMap(c => c.items);
 
   const handleAdminSetup = async () => {
     if (!profile?.userId) return;
@@ -233,13 +528,6 @@ export default function AdminDashboard() {
       </div>
     );
   }
-
-  console.log('[AdminDashboard] Profile state:', { 
-    hasProfile: !!profile, 
-    isAdmin: profile?.isAdmin, 
-    userId: profile?.userId,
-    userEmail: user?.email 
-  });
 
   // Protection Check
   if (!profile?.isAdmin) {
@@ -422,6 +710,15 @@ export default function AdminDashboard() {
     }
   });
 
+  const { data: trainingStats = { total: 0, verified: 0, totalVotes: 0, byLanguage: {} } } = useQuery({
+    queryKey: ['admin-training-stats'],
+    queryFn: async () => {
+      const headers = await getAdminHeaders();
+      const res = await fetch('/api/admin/crowd-translations/stats', { headers });
+      return res.ok ? res.json() : { total: 0, verified: 0, totalVotes: 0, byLanguage: {} };
+    }
+  });
+
   const { data: surveyStats = {} } = useQuery({
     queryKey: ['admin-surveys-stats'],
     queryFn: async () => {
@@ -444,6 +741,7 @@ export default function AdminDashboard() {
     },
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ['admin-settings'] });
+      queryClient.invalidateQueries({ queryKey: ['/api/settings/public'] });
       toast({ title: "Saved", description: "Setting updated successfully" });
     }
   });
@@ -474,16 +772,16 @@ export default function AdminDashboard() {
     }
   });
 
-  const approveKYC = useMutation({
+  const approveEmail = useMutation({
     mutationFn: async (userId: string) => {
       const headers = await getAdminHeaders();
-      const res = await fetch(`/api/admin/kyc/${userId}/approve`, { method: 'POST', headers });
+      const res = await fetch(`/api/admin/email-verification/${userId}/approve`, { method: 'POST', headers });
       if (!res.ok) throw new Error('Failed');
       return res.json();
     },
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ['admin-users'] });
-      toast({ title: "Approved", description: "KYC verification approved" });
+      toast({ title: "Approved", description: "Email verification approved" });
     }
   });
 
@@ -513,16 +811,16 @@ export default function AdminDashboard() {
     }
   });
 
-  const rejectKYC = useMutation({
+  const rejectEmail = useMutation({
     mutationFn: async (userId: string) => {
       const headers = await getAdminHeaders();
-      const res = await fetch(`/api/admin/kyc/${userId}/reject`, { method: 'POST', headers });
+      const res = await fetch(`/api/admin/email-verification/${userId}/reject`, { method: 'POST', headers });
       if (!res.ok) throw new Error('Failed');
       return res.json();
     },
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ['admin-users'] });
-      toast({ title: "Rejected", description: "KYC verification rejected" });
+      toast({ title: "Rejected", description: "Email verification rejected" });
     }
   });
 
@@ -625,6 +923,7 @@ export default function AdminDashboard() {
     },
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ['admin-faqs'] });
+      queryClient.invalidateQueries({ queryKey: ['/api/faqs'] });
       toast({ title: "Created", description: "FAQ added successfully" });
     }
   });
@@ -642,6 +941,7 @@ export default function AdminDashboard() {
     },
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ['admin-faqs'] });
+      queryClient.invalidateQueries({ queryKey: ['/api/faqs'] });
       toast({ title: "Updated", description: "FAQ updated successfully" });
     }
   });
@@ -658,6 +958,7 @@ export default function AdminDashboard() {
     },
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ['admin-faqs'] });
+      queryClient.invalidateQueries({ queryKey: ['/api/faqs'] });
       toast({ title: "Deleted", description: "FAQ removed" });
     }
   });
@@ -677,6 +978,25 @@ export default function AdminDashboard() {
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ['admin-testimonials'] });
       toast({ title: "Created", description: "Testimonial added successfully" });
+    }
+  });
+
+  const createTrainingTerm = useMutation({
+    mutationFn: async (term: any) => {
+      const headers = await getAdminHeaders();
+      const res = await fetch('/api/admin/training-terms', {
+        method: 'POST',
+        headers,
+        body: JSON.stringify(term)
+      });
+      if (!res.ok) throw new Error('Failed to create training term');
+      return res.json();
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ['admin-training-stats'] });
+      queryClient.invalidateQueries({ queryKey: ['admin-training-terms'] });
+      toast({ title: "Created", description: "New training term added" });
+      setNewTrainingTerm({ term: "", category: "legal", context: "" });
     }
   });
 
@@ -729,6 +1049,27 @@ export default function AdminDashboard() {
     }
   });
 
+  const exportTrainingData = useMutation({
+    mutationFn: async () => {
+      const headers = await getAdminHeaders();
+      const res = await fetch('/api/admin/crowd-translations/export', { headers });
+      if (!res.ok) throw new Error('Failed to export training data');
+      return res.text();
+    },
+    onSuccess: (data) => {
+      const blob = new Blob([data], { type: 'application/x-jsonlines' });
+      const url = URL.createObjectURL(blob);
+      const link = document.createElement('a');
+      link.href = url;
+      link.download = `sabi_training_data_${new Date().toISOString().split('T')[0]}.jsonl`;
+      document.body.appendChild(link);
+      link.click();
+      document.body.removeChild(link);
+      URL.revokeObjectURL(url);
+      toast({ title: "Exported", description: "Training data exported as JSONL" });
+    }
+  });
+
   const updateUser = useMutation({
     mutationFn: async ({ userId, updates }: { userId: string; updates: any }) => {
       const headers = await getAdminHeaders();
@@ -762,7 +1103,7 @@ export default function AdminDashboard() {
       toast({ title: "Success", description: "Logging in as user..." });
       // In a real app, you would use data.token to sign in
       // For now, we'll just log it and show a message
-      console.log('Impersonation token:', data.token);
+      // Impersonation token: data.token
       window.open(`/auth/login?token=${data.token}`, '_blank');
     }
   });
@@ -1214,6 +1555,40 @@ export default function AdminDashboard() {
   });
   const [editingPaymentMethod, setEditingPaymentMethod] = useState<any>(null);
 
+  const { data: trainingTerms = [] } = useQuery({
+    queryKey: ['admin-training-terms'],
+    queryFn: async () => {
+      const headers = await getAdminHeaders();
+      const res = await fetch('/api/admin/training-terms', { headers });
+      return res.ok ? res.json() : [];
+    }
+  });
+
+  const { data: crowdTranslations = [] } = useQuery({
+    queryKey: ['admin-crowd-translations'],
+    queryFn: async () => {
+      const headers = await getAdminHeaders();
+      const res = await fetch('/api/admin/crowd-translations', { headers });
+      return res.ok ? res.json() : [];
+    }
+  });
+
+  const deleteTrainingTerm = useMutation({
+    mutationFn: async (id: string) => {
+      const headers = await getAdminHeaders();
+      const res = await fetch(`/api/admin/training-terms/${id}`, {
+        method: 'DELETE',
+        headers
+      });
+      if (!res.ok) throw new Error('Failed to delete training term');
+      return res.json();
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ['admin-training-terms'] });
+      toast({ title: "Deleted", description: "Training term removed" });
+    }
+  });
+
   const [editingTemplate, setEditingTemplate] = useState<any>(null);
   const [newTemplate, setNewTemplate] = useState({
     name: '',
@@ -1252,8 +1627,26 @@ export default function AdminDashboard() {
     password: '',
     fromEmail: '',
     fromName: '',
-    encryption: 'tls'
+    encryption: 'tls',
+    isActive: true
   });
+
+  const [pushSettings, setPushSettings] = useState({
+    publicKey: '',
+    privateKey: '',
+    subject: '',
+    isActive: true
+  });
+
+  const [socialLinks, setSocialLinks] = useState({
+    facebook: '',
+    twitter: '',
+    instagram: '',
+    linkedin: '',
+    youtube: '',
+    whatsapp: ''
+  });
+
 
   const { data: notificationTemplates = [] } = useQuery({
     queryKey: ['admin-notification-templates'],
@@ -1270,23 +1663,61 @@ export default function AdminDashboard() {
       const headers = await getAdminHeaders();
       const res = await fetch('/api/admin/notifications/smtp', { headers });
       if (res.ok) {
-        const data = await res.json();
-        if (data) {
-          setSmtpSettings({
-            host: data.host || '',
-            port: data.port?.toString() || '587',
-            username: data.username || '',
-            password: data.password || '',
-            fromEmail: data.fromEmail || '',
-            fromName: data.fromName || '',
-            encryption: data.encryption || 'tls'
-          });
-        }
-        return data;
+        return await res.json();
       }
       return null;
     }
   });
+
+  const { data: pushData } = useQuery({
+    queryKey: ['admin-push-settings'],
+    queryFn: async () => {
+      const headers = await getAdminHeaders();
+      const res = await fetch('/api/admin/notifications/push', { headers });
+      if (res.ok) {
+        return await res.json();
+      }
+      return null;
+    }
+  });
+
+  useEffect(() => {
+    if (smtpData) {
+      setSmtpSettings({
+        host: smtpData.host || '',
+        port: smtpData.port?.toString() || '587',
+        username: smtpData.username || '',
+        password: smtpData.password || '',
+        fromEmail: smtpData.fromEmail || '',
+        fromName: smtpData.fromName || '',
+        encryption: smtpData.encryption || 'tls',
+        isActive: smtpData.isActive !== false
+      });
+    }
+  }, [smtpData]);
+
+  useEffect(() => {
+    if (pushData) {
+      setPushSettings({
+        publicKey: pushData.publicKey || '',
+        privateKey: pushData.privateKey || '',
+        subject: pushData.subject || '',
+        isActive: pushData.isActive !== false
+      });
+    }
+  }, [pushData]);
+
+  useEffect(() => {
+    const socialLinksSetting = settings.find((s: any) => s.key === 'social_links')?.value;
+    if (socialLinksSetting) {
+      try {
+        const parsed = JSON.parse(socialLinksSetting);
+        setSocialLinks(prev => ({ ...prev, ...parsed }));
+      } catch (e) {
+        console.error("Error parsing social links setting", e);
+      }
+    }
+  }, [settings]);
 
   const createTemplate = useMutation({
     mutationFn: async (template: any) => {
@@ -1310,7 +1741,7 @@ export default function AdminDashboard() {
     mutationFn: async ({ templateId, updates }: { templateId: string; updates: any }) => {
       const headers = await getAdminHeaders();
       const res = await fetch(`/api/admin/notifications/templates/${templateId}`, {
-        method: 'PUT',
+        method: 'PATCH',
         headers,
         body: JSON.stringify(updates)
       });
@@ -1357,6 +1788,66 @@ export default function AdminDashboard() {
     }
   });
 
+  const savePushSettings = useMutation({
+    mutationFn: async (settings: any) => {
+      const headers = await getAdminHeaders();
+      const res = await fetch('/api/admin/notifications/push', {
+        method: 'POST',
+        headers,
+        body: JSON.stringify(settings)
+      });
+      if (!res.ok) throw new Error('Failed to save Push settings');
+      return res.json();
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ['admin-push-settings'] });
+      toast({ title: "Saved", description: "Push notification settings saved successfully" });
+    }
+  });
+
+  const generateVapidKeys = useMutation({
+    mutationFn: async () => {
+      const headers = await getAdminHeaders();
+      const res = await fetch('/api/admin/notifications/push/generate-keys', {
+        method: 'POST',
+        headers
+      });
+      if (!res.ok) throw new Error('Failed to generate VAPID keys');
+      return res.json();
+    },
+    onSuccess: (keys) => {
+      setPushSettings({
+        ...pushSettings,
+        publicKey: keys.publicKey,
+        privateKey: keys.privateKey
+      });
+      toast({ title: "Keys Generated", description: "New VAPID keys have been generated. Don't forget to save." });
+    }
+  });
+
+  const testPushNotification = useMutation({
+    mutationFn: async (userId: string) => {
+      const headers = await getAdminHeaders();
+      const res = await fetch('/api/admin/notifications/push/test', {
+        method: 'POST',
+        headers,
+        body: JSON.stringify({ userId })
+      });
+      if (!res.ok) throw new Error('Push test failed');
+      return res.json();
+    },
+    onSuccess: (data) => {
+      if (data.success) {
+        toast({ title: "Success", description: "Push notification test sent successfully" });
+      } else {
+        toast({ title: "Failed", description: "Push notification test failed. User might not have active subscriptions.", variant: "destructive" });
+      }
+    },
+    onError: (err: any) => {
+      toast({ title: "Error", description: err.message || "Failed to test push notification", variant: "destructive" });
+    }
+  });
+
   const testSmtpConnection = useMutation({
     mutationFn: async () => {
       const headers = await getAdminHeaders();
@@ -1376,137 +1867,907 @@ export default function AdminDashboard() {
     }
   });
 
-  const getSetting = (key: string) => settings.find((s: any) => s.key === key)?.value || '';
-
-  const [localSettings, setLocalSettings] = useState<Record<string, string>>({});
-
-  const handleSettingChange = (key: string, value: string) => {
-    setLocalSettings(prev => ({ ...prev, [key]: value }));
-  };
-
-  const handleSaveSetting = (key: string, category: string, isSecret: boolean = false) => {
-    const value = localSettings[key] ?? getSetting(key);
-
-    // Validation for SEO keywords
-    if (key === 'seo_keywords' && value) {
-      if (!value.includes(',')) {
-        toast({ 
-          title: "Format Suggestion", 
-          description: "Consider using comma-separated keywords for better SEO results.", 
-          variant: "default" 
-        });
-      }
-    }
-
-    saveSetting.mutate({ key, value, category, isSecret });
-  };
-
   return (
-    <div className="min-h-screen bg-slate-50 p-3 md:p-6 pb-20">
-      <div className="max-w-7xl mx-auto space-y-6">
-        <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3">
-          <div>
-            <h1 className="text-2xl md:text-3xl font-bold">Admin Dashboard</h1>
-            <p className="text-sm md:text-base text-slate-500">Manage your platform settings and users</p>
-          </div>
-          <div className="flex items-center gap-2">
-            <Link href="/app">
-              <Button variant="outline" size="sm" className="gap-2">
-                <ChevronRight className="h-4 w-4 rotate-180" /> Back to App
-              </Button>
-            </Link>
-            <Badge className="bg-red-600 text-white w-fit">Admin Access</Badge>
-          </div>
+    <div className="flex min-h-screen bg-slate-50">
+      {/* Desktop Sidebar */}
+      <aside 
+        className={cn(
+          "hidden md:flex flex-col border-r bg-white transition-all duration-300 sticky top-0 h-screen",
+          isSidebarCollapsed ? "w-20" : "w-64"
+        )}
+      >
+        <div className="p-4 border-b flex items-center justify-between">
+          {!isSidebarCollapsed && (
+            <motion.div 
+              initial={{ opacity: 0 }}
+              animate={{ opacity: 1 }}
+              className="flex items-center gap-2 font-bold text-xl text-primary"
+            >
+              <LayoutDashboard className="h-6 w-6" />
+              <span>Admin Panel</span>
+            </motion.div>
+          )}
+          {isSidebarCollapsed && (
+            <LayoutDashboard className="h-6 w-6 text-primary mx-auto" />
+          )}
+          <Button 
+            variant="ghost" 
+            size="icon" 
+            onClick={() => setIsSidebarCollapsed(!isSidebarCollapsed)}
+            className="ml-auto"
+          >
+            <ChevronLeft className={cn("h-4 w-4 transition-transform", isSidebarCollapsed && "rotate-180")} />
+          </Button>
         </div>
 
-        {/* Stats Overview */}
-        <div className="grid grid-cols-2 lg:grid-cols-4 gap-3">
-          <Card className="bg-gradient-to-br from-blue-50 to-blue-100/50 border-blue-200">
-            <CardContent className="p-3 md:p-4">
-              <div className="flex items-center gap-2 md:gap-3">
-                <div className="h-10 w-10 rounded-xl bg-blue-100 flex items-center justify-center">
-                  <Users className="h-5 w-5 text-blue-600" />
-                </div>
-                <div>
-                  <p className="text-xl md:text-2xl font-bold text-blue-700">{users.length}</p>
-                  <p className="text-[10px] md:text-xs text-blue-600/70">Total Users</p>
-                </div>
+        <ScrollArea className="flex-1 py-4">
+          <nav className="px-3 space-y-6">
+            {NAV_CATEGORIES.map((category) => (
+              <div key={category.title} className="space-y-1">
+                {!isSidebarCollapsed && (
+                  <h4 className="px-3 text-[10px] font-bold uppercase tracking-wider text-slate-400 mb-2">
+                    {category.title}
+                  </h4>
+                )}
+                {category.items.map((item) => (
+                  <Button
+                    key={item.id}
+                    variant={activeTab === item.id ? "default" : "ghost"}
+                    className={cn(
+                      "w-full transition-all duration-200 h-9",
+                      isSidebarCollapsed ? "justify-center px-0" : "justify-start px-3",
+                      activeTab === item.id ? "bg-primary text-primary-foreground shadow-sm font-medium" : "hover:bg-slate-100 text-slate-600"
+                    )}
+                    onClick={() => setActiveTab(item.id)}
+                  >
+                    <item.icon className={cn("h-4 w-4", !isSidebarCollapsed && "mr-3")} />
+                    {!isSidebarCollapsed && (
+                      <motion.span
+                        initial={{ opacity: 0, x: -10 }}
+                        animate={{ opacity: 1, x: 0 }}
+                        className="text-sm"
+                      >
+                        {item.label}
+                      </motion.span>
+                    )}
+                  </Button>
+                ))}
+                {isSidebarCollapsed && <div className="h-px bg-slate-100 mx-4 my-2" />}
               </div>
-            </CardContent>
-          </Card>
-          <Card className="bg-gradient-to-br from-green-50 to-green-100/50 border-green-200">
-            <CardContent className="p-3 md:p-4">
-              <div className="flex items-center gap-2 md:gap-3">
-                <div className="h-10 w-10 rounded-xl bg-green-100 flex items-center justify-center">
-                  <Store className="h-5 w-5 text-green-600" />
-                </div>
-                <div>
-                  <p className="text-xl md:text-2xl font-bold text-green-700">{vendorApps.filter((a: any) => a.status === 'approved').length}</p>
-                  <p className="text-[10px] md:text-xs text-green-600/70">Active Vendors</p>
-                </div>
-              </div>
-            </CardContent>
-          </Card>
-          <Card className="bg-gradient-to-br from-purple-50 to-purple-100/50 border-purple-200">
-            <CardContent className="p-3 md:p-4">
-              <div className="flex items-center gap-2 md:gap-3">
-                <div className="h-10 w-10 rounded-xl bg-purple-100 flex items-center justify-center">
-                  <Calendar className="h-5 w-5 text-purple-600" />
-                </div>
-                <div>
-                  <p className="text-xl md:text-2xl font-bold text-purple-700">{adminEvents.length}</p>
-                  <p className="text-[10px] md:text-xs text-purple-600/70">Events</p>
-                </div>
-              </div>
-            </CardContent>
-          </Card>
-          <Card className="bg-gradient-to-br from-amber-50 to-amber-100/50 border-amber-200">
-            <CardContent className="p-3 md:p-4">
-              <div className="flex items-center gap-2 md:gap-3">
-                <div className="h-10 w-10 rounded-xl bg-amber-100 flex items-center justify-center">
-                  <CreditCard className="h-5 w-5 text-amber-600" />
-                </div>
-                <div>
-                  <p className="text-xl md:text-2xl font-bold text-amber-700">{payments.length}</p>
-                  <p className="text-[10px] md:text-xs text-amber-600/70">Transactions</p>
-                </div>
-              </div>
-            </CardContent>
-          </Card>
+            ))}
+          </nav>
+        </ScrollArea>
+
+        <div className="p-4 border-t mt-auto">
+          <Link href="/app">
+            <Button 
+              variant="outline" 
+              className={cn("w-full gap-2", isSidebarCollapsed && "px-0 justify-center")}
+            >
+              <ChevronRight className="h-4 w-4 rotate-180" />
+              {!isSidebarCollapsed && "Back to App"}
+            </Button>
+          </Link>
         </div>
+      </aside>
 
-        <Tabs defaultValue="settings" className="space-y-4">
-          <div className="overflow-x-auto -mx-3 px-3 pb-1">
-            <TabsList className="bg-white border inline-flex w-auto min-w-full md:w-full">
-              <TabsTrigger value="settings" className="text-xs md:text-sm whitespace-nowrap"><Settings className="h-3 w-3 md:h-4 md:w-4 mr-1 md:mr-2" /><span className="hidden sm:inline">Settings</span><span className="sm:hidden">Set</span></TabsTrigger>
-              <TabsTrigger value="api-keys" className="text-xs md:text-sm whitespace-nowrap"><Key className="h-3 w-3 md:h-4 md:w-4 mr-1 md:mr-2" /><span className="hidden sm:inline">API Keys</span><span className="sm:hidden">API</span></TabsTrigger>
-              <TabsTrigger value="plans" className="text-xs md:text-sm whitespace-nowrap"><CreditCard className="h-3 w-3 md:h-4 md:w-4 mr-1 md:mr-2" /> Plans</TabsTrigger>
-              <TabsTrigger value="credits" className="text-xs md:text-sm whitespace-nowrap"><Coins className="h-3 w-3 md:h-4 md:w-4 mr-1 md:mr-2" /><span className="hidden sm:inline">Credits</span><span className="sm:hidden">Cred</span></TabsTrigger>
-              <TabsTrigger value="payment-methods" className="text-xs md:text-sm whitespace-nowrap"><Building2 className="h-3 w-3 md:h-4 md:w-4 mr-1 md:mr-2" /><span className="hidden sm:inline">Payment Methods</span><span className="sm:hidden">Pay</span></TabsTrigger>
-              <TabsTrigger value="payments" className="text-xs md:text-sm whitespace-nowrap"><CreditCard className="h-3 w-3 md:h-4 md:w-4 mr-1 md:mr-2" /><span className="hidden sm:inline">Transactions</span><span className="sm:hidden">Trans</span></TabsTrigger>
-              <TabsTrigger value="users" className="text-xs md:text-sm whitespace-nowrap"><Users className="h-3 w-3 md:h-4 md:w-4 mr-1 md:mr-2" /> Users</TabsTrigger>
-              <TabsTrigger value="vendor-services" className="text-xs md:text-sm whitespace-nowrap"><Briefcase className="h-3 w-3 md:h-4 md:w-4 mr-1 md:mr-2" /> Services</TabsTrigger>
-              <TabsTrigger value="vendors" className="text-xs md:text-sm whitespace-nowrap"><Store className="h-3 w-3 md:h-4 md:w-4 mr-1 md:mr-2" /><span className="hidden sm:inline">Vendors</span><span className="sm:hidden">Vend</span></TabsTrigger>
-              <TabsTrigger value="notifications" className="text-xs md:text-sm whitespace-nowrap" data-testid="tab-notifications"><Bell className="h-3 w-3 md:h-4 md:w-4 mr-1 md:mr-2" /><span className="hidden sm:inline">Notifications</span><span className="sm:hidden">Notif</span></TabsTrigger>
-              <TabsTrigger value="jobs" className="text-xs md:text-sm whitespace-nowrap"><Briefcase className="h-3 w-3 md:h-4 md:w-4 mr-1 md:mr-2" /> Jobs</TabsTrigger>
-              <TabsTrigger value="events" className="text-xs md:text-sm whitespace-nowrap"><Calendar className="h-3 w-3 md:h-4 md:w-4 mr-1 md:mr-2" /> Events</TabsTrigger>
-              <TabsTrigger value="faqs" className="text-xs md:text-sm whitespace-nowrap"><HelpCircle className="h-3 w-3 md:h-4 md:w-4 mr-1 md:mr-2" /> FAQs</TabsTrigger>
-              <TabsTrigger value="testimonials" className="text-xs md:text-sm whitespace-nowrap"><MessageSquare className="h-3 w-3 md:h-4 md:w-4 mr-1 md:mr-2" /> Reviews</TabsTrigger>
-              <TabsTrigger value="moat" className="text-xs md:text-sm whitespace-nowrap"><Shield className="h-3 w-3 md:h-4 md:w-4 mr-1 md:mr-2" /> MOAT</TabsTrigger>
-              <TabsTrigger value="analytics" className="text-xs md:text-sm whitespace-nowrap"><BarChart3 className="h-3 w-3 md:h-4 md:w-4 mr-1 md:mr-2" /><span className="hidden sm:inline">Analytics</span><span className="sm:hidden">Stats</span></TabsTrigger>
-              <TabsTrigger value="surveys" className="text-xs md:text-sm whitespace-nowrap"><MessageSquare className="h-3 w-3 md:h-4 md:w-4 mr-1 md:mr-2" /><span className="hidden sm:inline">Adoption</span><span className="sm:hidden">Surv</span></TabsTrigger>
-              <TabsTrigger value="flagged-posts" className="text-xs md:text-sm whitespace-nowrap"><Flag className="h-3 w-3 md:h-4 md:w-4 mr-1 md:mr-2" /><span className="hidden sm:inline">Flagged Posts</span><span className="sm:hidden">Flags</span></TabsTrigger>
-          <TabsTrigger value="escrow" className="text-xs md:text-sm whitespace-nowrap"><Shield className="h-3 w-3 md:h-4 md:w-4 mr-1 md:mr-2" /><span className="hidden sm:inline">Escrow</span><span className="sm:hidden">Escrow</span></TabsTrigger>
-        </TabsList>
+      {/* Mobile Menu Sheet */}
+      <Sheet open={isMobileMenuOpen} onOpenChange={setIsMobileMenuOpen}>
+        <SheetContent side="left" className="p-0 w-72">
+          <SheetHeader className="sr-only">
+            <SheetTitle>Admin Navigation</SheetTitle>
+            <SheetDescription>Mobile navigation menu for admin panel</SheetDescription>
+          </SheetHeader>
+          <div className="p-4 border-b flex items-center gap-2 font-bold text-xl text-primary">
+            <LayoutDashboard className="h-6 w-6" />
+            <span>Admin Panel</span>
           </div>
+          <ScrollArea className="h-[calc(100vh-64px)] py-4">
+            <nav className="px-3 space-y-6">
+              {NAV_CATEGORIES.map((category) => (
+                <div key={category.title} className="space-y-1">
+                  <h4 className="px-3 text-[10px] font-bold uppercase tracking-wider text-slate-400 mb-2">
+                    {category.title}
+                  </h4>
+                  {category.items.map((item) => (
+                    <Button
+                      key={item.id}
+                      variant={activeTab === item.id ? "default" : "ghost"}
+                      className={cn(
+                        "w-full justify-start px-3 h-10",
+                        activeTab === item.id ? "bg-primary text-primary-foreground font-medium" : "text-slate-600"
+                      )}
+                      onClick={() => {
+                        setActiveTab(item.id);
+                        setIsMobileMenuOpen(false);
+                      }}
+                    >
+                      <item.icon className="h-4 w-4 mr-3" />
+                      <span className="text-sm">{item.label}</span>
+                    </Button>
+                  ))}
+                </div>
+              ))}
+              <div className="pt-4 mt-4 border-t px-3">
+                <Link href="/app">
+                  <Button variant="outline" className="w-full gap-2 justify-start h-10">
+                    <ChevronRight className="h-4 w-4 rotate-180" />
+                    Back to App
+                  </Button>
+                </Link>
+              </div>
+            </nav>
+          </ScrollArea>
+        </SheetContent>
+      </Sheet>
 
-          {/* Settings Tab */}
-          <TabsContent value="settings">
+      {/* Main Content Area */}
+      <div className="flex-1 flex flex-col min-w-0">
+        {/* Mobile Header */}
+        <header className="md:hidden flex items-center justify-between p-4 border-b bg-white sticky top-0 z-10">
+          <Button variant="ghost" size="icon" onClick={() => setIsMobileMenuOpen(true)}>
+            <Menu className="h-6 w-6" />
+          </Button>
+          <div className="flex items-center gap-2 font-bold text-primary">
+            <LayoutDashboard className="h-5 w-5" />
+            <span>Admin</span>
+          </div>
+          <div className="w-10" />
+        </header>
+
+        <main className="flex-1 p-4 md:p-8 lg:p-10">
+          <div className="max-w-7xl mx-auto space-y-8">
+            <div className="flex flex-col md:flex-row md:items-end justify-between gap-4">
+              <div>
+                <motion.h1 
+                  key={activeTab}
+                  initial={{ opacity: 0, x: -20 }}
+                  animate={{ opacity: 1, x: 0 }}
+                  className="text-3xl font-bold tracking-tight text-slate-900"
+                >
+                  {NAV_ITEMS.find(i => i.id === activeTab)?.label || "Dashboard"}
+                </motion.h1>
+                <p className="text-slate-500 mt-1">
+                  Manage your platform {activeTab.replace('-', ' ')} and overview.
+                </p>
+              </div>
+              <div className="flex items-center gap-3">
+                <Badge variant="outline" className="px-3 py-1 border-red-200 text-red-700 bg-red-50 font-medium">
+                  <Shield className="h-3 w-3 mr-1" /> Admin Access
+                </Badge>
+              </div>
+            </div>
+
+            {/* Stats Overview - Show only on settings or analytics */}
+            {(activeTab === 'settings' || activeTab === 'analytics') && (
+              <motion.div 
+                initial={{ opacity: 0, y: 20 }}
+                animate={{ opacity: 1, y: 0 }}
+                transition={{ delay: 0.1 }}
+                className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4"
+              >
+                {[
+                  { label: "Total Users", value: users.length, icon: Users, color: "blue" },
+                  { label: "Active Vendors", value: vendorApps.filter((a: any) => a.status === 'approved').length, icon: Store, color: "green" },
+                  { label: "Total Events", value: adminEvents.length, icon: Calendar, color: "purple" },
+                  { label: "Transactions", value: payments.length, icon: CreditCard, color: "amber" }
+                ].map((stat, idx) => (
+                  <motion.div
+                    key={stat.label}
+                    initial={{ opacity: 0, scale: 0.95 }}
+                    animate={{ opacity: 1, scale: 1 }}
+                    transition={{ delay: 0.1 + (idx * 0.1) }}
+                  >
+                    <Card className="border-none shadow-sm bg-white overflow-hidden group">
+                      <div className={cn("absolute top-0 left-0 w-1 h-full", `bg-${stat.color}-500`)} />
+                      <CardContent className="p-6">
+                        <div className="flex items-center justify-between">
+                          <div>
+                            <p className="text-sm font-medium text-slate-500">{stat.label}</p>
+                            <h3 className="text-2xl font-bold mt-1">{stat.value}</h3>
+                          </div>
+                          <div className={cn("h-12 w-12 rounded-full flex items-center justify-center group-hover:scale-110 transition-transform", `bg-${stat.color}-50`)}>
+                            <stat.icon className={cn("h-6 w-6", `text-${stat.color}-600`)} />
+                          </div>
+                        </div>
+                      </CardContent>
+                    </Card>
+                  </motion.div>
+                ))}
+              </motion.div>
+            )}
+
+            <AnimatePresence mode="wait">
+              <motion.div
+                key={activeTab}
+                initial={{ opacity: 0, y: 10 }}
+                animate={{ opacity: 1, y: 0 }}
+                exit={{ opacity: 0, y: -10 }}
+                transition={{ duration: 0.2 }}
+                className="space-y-6"
+              >
+                <Tabs value={activeTab} onValueChange={setActiveTab} className="space-y-6">
+                  {/* AI Training Tab */}
+                  <TabsContent value="training" className="space-y-6">
+                    <div className="flex flex-col md:flex-row md:items-center justify-between gap-4">
+                      <div>
+                        <h3 className="text-xl font-bold flex items-center gap-2">
+                          <BrainCircuit className="h-6 w-6 text-blue-500" />
+                          AI Model Training
+                        </h3>
+                        <p className="text-sm text-slate-500">Crowd-sourced translation progress and model fine-tuning data</p>
+                      </div>
+                      <div className="flex items-center gap-3">
+                        <Dialog open={isAddingTrainingTerm} onOpenChange={setIsAddingTrainingTerm}>
+                          <DialogTrigger asChild>
+                            <Button className="bg-green-600 hover:bg-green-700">
+                              <Plus className="h-4 w-4 mr-2" />
+                              Add New Word
+                            </Button>
+                          </DialogTrigger>
+                          <DialogContent>
+                            <DialogHeader>
+                              <DialogTitle>Add Training Word</DialogTitle>
+                              <DialogDescription>
+                                Add a new word or phrase to be crowd-translated and verified for AI training.
+                              </DialogDescription>
+                            </DialogHeader>
+                            <div className="space-y-4 py-4">
+                              <div className="space-y-2">
+                                <Label htmlFor="term">Word or Phrase</Label>
+                                <Input 
+                                  id="term" 
+                                  placeholder="e.g. Affidavit, Power of Attorney" 
+                                  value={newTrainingTerm.term}
+                                  onChange={(e) => setNewTrainingTerm({...newTrainingTerm, term: e.target.value})}
+                                />
+                              </div>
+                              <div className="space-y-2">
+                                <Label htmlFor="category">Category</Label>
+                                <Select 
+                                  value={newTrainingTerm.category} 
+                                  onValueChange={(value) => setNewTrainingTerm({...newTrainingTerm, category: value})}
+                                >
+                                  <SelectTrigger>
+                                    <SelectValue placeholder="Select category" />
+                                  </SelectTrigger>
+                                  <SelectContent>
+                                    <SelectItem value="legal">Legal</SelectItem>
+                                    <SelectItem value="civic">Civic</SelectItem>
+                                    <SelectItem value="medical">Medical</SelectItem>
+                                    <SelectItem value="general">General</SelectItem>
+                                  </SelectContent>
+                                </Select>
+                              </div>
+                              <div className="space-y-2">
+                                <Label htmlFor="context">Context (Optional)</Label>
+                                <Input 
+                                  id="context" 
+                                  placeholder="Provide context for better translation" 
+                                  value={newTrainingTerm.context}
+                                  onChange={(e) => setNewTrainingTerm({...newTrainingTerm, context: e.target.value})}
+                                />
+                              </div>
+                            </div>
+                            <DialogFooter>
+                              <Button variant="outline" onClick={() => setIsAddingTrainingTerm(false)}>Cancel</Button>
+                              <Button 
+                                onClick={() => {
+                                  if (!newTrainingTerm.term) {
+                                    toast({ title: "Error", description: "Term is required", variant: "destructive" });
+                                    return;
+                                  }
+                                  createTrainingTerm.mutate(newTrainingTerm, {
+                                    onSuccess: () => {
+                                      setIsAddingTrainingTerm(false);
+                                      setNewTrainingTerm({ term: "", category: "legal", context: "" });
+                                    }
+                                  });
+                                }}
+                                disabled={createTrainingTerm.isPending}
+                              >
+                                {createTrainingTerm.isPending ? "Adding..." : "Add Word"}
+                              </Button>
+                            </DialogFooter>
+                          </DialogContent>
+                        </Dialog>
+                        
+                        <Button 
+                          onClick={() => exportTrainingData.mutate()} 
+                          disabled={exportTrainingData.isPending || (trainingStats?.verified || 0) === 0}
+                          className="bg-blue-600 hover:bg-blue-700"
+                        >
+                          <Download className="h-4 w-4 mr-2" />
+                          Export JSONL
+                        </Button>
+                      </div>
+                    </div>
+
+                    {/* Training Stats Overview */}
+                    <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+                      <Card className="bg-blue-50/50 border-blue-100">
+                        <CardHeader className="pb-2">
+                          <CardTitle className="text-sm font-medium text-blue-600">Total Submissions</CardTitle>
+                        </CardHeader>
+                        <CardContent>
+                          <div className="text-2xl font-bold text-blue-900">{trainingStats?.total || 0}</div>
+                          <p className="text-xs text-blue-600 mt-1">Translations submitted by users</p>
+                        </CardContent>
+                      </Card>
+                      <Card className="bg-green-50/50 border-green-100">
+                        <CardHeader className="pb-2">
+                          <CardTitle className="text-sm font-medium text-green-600">Verified Terms</CardTitle>
+                        </CardHeader>
+                        <CardContent>
+                          <div className="text-2xl font-bold text-green-900">{trainingStats?.verified || 0}</div>
+                          <p className="text-xs text-green-600 mt-1">Ready for model fine-tuning</p>
+                        </CardContent>
+                      </Card>
+                      <Card className="bg-amber-50/50 border-amber-100">
+                        <CardHeader className="pb-2">
+                          <CardTitle className="text-sm font-medium text-amber-600">Avg. Votes</CardTitle>
+                        </CardHeader>
+                        <CardContent>
+                          <div className="text-2xl font-bold text-amber-900">
+                            {trainingStats?.total > 0 ? (trainingStats.totalVotes / trainingStats.total).toFixed(1) : '0.0'}
+                          </div>
+                          <p className="text-xs text-amber-600 mt-1">Community verification activity</p>
+                        </CardContent>
+                      </Card>
+                    </div>
+
+                    {/* Language Breakdown */}
+                    <Card>
+                      <CardHeader>
+                        <CardTitle className="text-lg">Language Distribution</CardTitle>
+                        <CardDescription>Number of verified translations per language</CardDescription>
+                      </CardHeader>
+                      <CardContent>
+                        <div className="h-[300px]">
+                          <ResponsiveContainer width="100%" height="100%">
+                            <BarChart
+                              data={Object.entries(trainingStats?.byLanguage || {}).map(([lang, count]) => ({
+                                language: lang.charAt(0).toUpperCase() + lang.slice(1),
+                                count
+                              }))}
+                              margin={{ top: 20, right: 30, left: 20, bottom: 5 }}
+                            >
+                              <CartesianGrid strokeDasharray="3 3" vertical={false} />
+                              <XAxis dataKey="language" />
+                              <YAxis />
+                              <Tooltip 
+                                contentStyle={{ backgroundColor: '#fff', borderRadius: '8px', border: '1px solid #e2e8f0' }}
+                                cursor={{ fill: '#f8fafc' }}
+                              />
+                              <Bar dataKey="count" fill="#3b82f6" radius={[4, 4, 0, 0]} barSize={40} />
+                            </BarChart>
+                          </ResponsiveContainer>
+                        </div>
+                      </CardContent>
+                    </Card>
+
+                    {/* Export Info */}
+                    <Card className="border-dashed">
+                      <CardContent className="pt-6">
+                        <div className="flex items-start gap-3">
+                          <div className="bg-slate-100 p-2 rounded-lg">
+                            <FileText className="h-5 w-5 text-slate-600" />
+                          </div>
+                          <div className="space-y-1">
+                            <h4 className="font-semibold text-sm">Export Format (JSONL)</h4>
+                            <p className="text-xs text-slate-500 leading-relaxed">
+                              The export generates a .jsonl file where each line is a training example:
+                              <br />
+                              <code className="bg-slate-50 p-1 rounded mt-1 block">
+                                {"{\"instruction\": \"Translate [Term] to [Language]\", \"input\": \"[Context]\", \"output\": \"[Translation]\"}"}
+                              </code>
+                            </p>
+                          </div>
+                        </div>
+                      </CardContent>
+                    </Card>
+
+                    {/* User Submitted Translations Section */}
+                    <div className="space-y-4 pt-4 border-t">
+                      <div className="flex items-center justify-between">
+                        <h4 className="font-semibold flex items-center gap-2">
+                          <Languages className="h-4 w-4 text-purple-500" />
+                          User Submitted Translations (Sabi Contributor)
+                        </h4>
+                      </div>
+                      
+                      <Card>
+                        <Table>
+                          <TableHeader>
+                            <TableRow>
+                              <TableHead>English Term</TableHead>
+                              <TableHead>Translation / Meaning</TableHead>
+                              <TableHead>Language</TableHead>
+                              <TableHead>Votes</TableHead>
+                              <TableHead>Status</TableHead>
+                              <TableHead>Submitted On</TableHead>
+                            </TableRow>
+                          </TableHeader>
+                          <TableBody>
+                            {crowdTranslations.length === 0 ? (
+                              <TableRow>
+                                <TableCell colSpan={6} className="text-center py-8 text-slate-500">
+                                  No user submissions yet.
+                                </TableCell>
+                              </TableRow>
+                            ) : (
+                              crowdTranslations.map((t: any) => (
+                                <TableRow key={t.id}>
+                                  <TableCell className="font-medium">{t.english}</TableCell>
+                                  <TableCell className="text-slate-700 font-semibold">{t.translation}</TableCell>
+                                  <TableCell>
+                                    <Badge variant="outline" className="capitalize">{t.language}</Badge>
+                                  </TableCell>
+                                  <TableCell>
+                                    <div className="flex items-center gap-1">
+                                      <Star className={cn("h-3 w-3", t.votes > 0 ? "fill-amber-400 text-amber-400" : "text-slate-300")} />
+                                      <span>{t.votes || 0}</span>
+                                    </div>
+                                  </TableCell>
+                                  <TableCell>
+                                    {t.verified ? (
+                                      <Badge className="bg-green-100 text-green-800 hover:bg-green-100 border-green-200">Verified</Badge>
+                                    ) : (
+                                      <Badge variant="secondary" className="bg-slate-100 text-slate-600 border-slate-200">Pending</Badge>
+                                    )}
+                                  </TableCell>
+                                  <TableCell className="text-xs text-slate-400">
+                                    {new Date(t.createdAt).toLocaleDateString()}
+                                  </TableCell>
+                                </TableRow>
+                              ))
+                            )}
+                          </TableBody>
+                        </Table>
+                      </Card>
+                    </div>
+
+                    {/* Manual Training Words Section */}
+                    <div className="space-y-4 pt-4 border-t">
+                      <div className="flex items-center justify-between">
+                        <h4 className="font-semibold flex items-center gap-2">
+                          <Plus className="h-4 w-4 text-blue-500" />
+                          Manual Training Terms
+                        </h4>
+                      </div>
+                      
+                      <Card>
+                        <CardContent className="pt-6 space-y-4">
+                          <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                            <div className="space-y-2">
+                              <label className="text-xs font-medium text-slate-500 uppercase">Term / Word</label>
+                              <Input 
+                                placeholder="e.g. SabiGuard" 
+                                value={newTrainingTerm.term}
+                                onChange={(e) => setNewTrainingTerm(prev => ({ ...prev, term: e.target.value }))}
+                              />
+                            </div>
+                            <div className="space-y-2">
+                              <label className="text-xs font-medium text-slate-500 uppercase">Context / Definition (Optional)</label>
+                              <Input 
+                                placeholder="e.g. AI-powered community security system" 
+                                value={newTrainingTerm.context}
+                                onChange={(e) => setNewTrainingTerm(prev => ({ ...prev, context: e.target.value }))}
+                              />
+                            </div>
+                          </div>
+                          <Button 
+                            className="w-full md:w-auto bg-blue-600 hover:bg-blue-700"
+                            disabled={!newTrainingTerm.term || createTrainingTerm.isPending}
+                            onClick={() => createTrainingTerm.mutate(newTrainingTerm)}
+                          >
+                            {createTrainingTerm.isPending ? "Adding..." : "Add Training Term"}
+                          </Button>
+                        </CardContent>
+                      </Card>
+
+                      <Card>
+                        <Table>
+                          <TableHeader>
+                            <TableRow>
+                              <TableHead>Term</TableHead>
+                              <TableHead>Context</TableHead>
+                              <TableHead>Added On</TableHead>
+                              <TableHead className="text-right">Action</TableHead>
+                            </TableRow>
+                          </TableHeader>
+                          <TableBody>
+                            {trainingTerms.length === 0 ? (
+                              <TableRow>
+                                <TableCell colSpan={4} className="text-center py-8 text-slate-500">
+                                  No manual training terms added yet.
+                                </TableCell>
+                              </TableRow>
+                            ) : (
+                              trainingTerms.map((term: any) => (
+                                <TableRow key={term.id}>
+                                  <TableCell className="font-medium">{term.term}</TableCell>
+                                  <TableCell className="text-slate-500 italic">{term.context || '-'}</TableCell>
+                                  <TableCell className="text-xs text-slate-400">
+                                    {new Date(term.createdAt).toLocaleDateString()}
+                                  </TableCell>
+                                  <TableCell className="text-right">
+                                    <Button 
+                                      variant="ghost" 
+                                      size="icon"
+                                      className="text-red-500 hover:text-red-700 hover:bg-red-50"
+                                      onClick={() => deleteTrainingTerm.mutate(term.id)}
+                                      disabled={deleteTrainingTerm.isPending}
+                                    >
+                                      <Trash2 className="h-4 w-4" />
+                                    </Button>
+                                  </TableCell>
+                                </TableRow>
+                              ))
+                            )}
+                          </TableBody>
+                        </Table>
+                      </Card>
+                    </div>
+                  </TabsContent>
+
+                <TabsContent value="frontend" className="mt-0">
+                  <div className="space-y-6">
+                    <Card>
+                      <CardHeader>
+                        <CardTitle className="flex items-center gap-2">
+                          <LayoutDashboard className="h-5 w-5 text-primary" />
+                          Frontend Management
+                        </CardTitle>
+                        <CardDescription>Manage the content and pages of your public website.</CardDescription>
+                      </CardHeader>
+                      <CardContent>
+                        <Tabs value={frontendPage} onValueChange={setFrontendPage} className="w-full">
+                          <TabsList className="grid grid-cols-2 md:grid-cols-5 h-auto p-1 bg-slate-100/50">
+                            <TabsTrigger value="homepage" className="text-xs py-2">Homepage</TabsTrigger>
+                            <TabsTrigger value="about" className="text-xs py-2">About Us</TabsTrigger>
+                            <TabsTrigger value="contact" className="text-xs py-2">Contact</TabsTrigger>
+                            <TabsTrigger value="footer" className="text-xs py-2">Footer</TabsTrigger>
+                            <TabsTrigger value="legal" className="text-xs py-2">Legal Pages</TabsTrigger>
+                          </TabsList>
+
+                          <div className="mt-6">
+                            {frontendPage === "homepage" && (
+                              <div className="space-y-6">
+                                <Card>
+                                  <CardHeader>
+                                    <CardTitle>Hero Section</CardTitle>
+                                    <p className="text-sm text-slate-500">Manage the main hero section of the homepage.</p>
+                                  </CardHeader>
+                                  <CardContent className="space-y-4">
+                                    <div className="space-y-2">
+                                      <Label htmlFor="hero_title">Hero Title</Label>
+                                      <Input
+                                        id="hero_title"
+                                        value={localSettings['hero_title'] ?? getSetting('hero_title')}
+                                        onChange={(e) => handleSettingChange('hero_title', e.target.value)}
+                                      />
+                                    </div>
+                                    <div className="space-y-2">
+                                      <Label htmlFor="hero_subtitle">Hero Subtitle</Label>
+                                      <Textarea
+                                        id="hero_subtitle"
+                                        value={localSettings['hero_subtitle'] ?? getSetting('hero_subtitle')}
+                                        onChange={(e) => handleSettingChange('hero_subtitle', e.target.value)}
+                                      />
+                                    </div>
+                                    <div className="space-y-2">
+                                      <Label htmlFor="video_demo_url">Video Demo URL (YouTube)</Label>
+                                      <div className="flex gap-2">
+                                        <Input
+                                          id="video_demo_url"
+                                          placeholder="https://www.youtube.com/watch?v=..."
+                                          value={localSettings['video_demo_url'] ?? getSetting('video_demo_url')}
+                                          onChange={(e) => handleSettingChange('video_demo_url', e.target.value)}
+                                        />
+                                      </div>
+                                      <p className="text-[10px] text-slate-500">Paste a YouTube URL. It will be automatically converted to an embed.</p>
+                                    </div>
+                                    <Button size="sm" onClick={() => {
+                                      handleSaveSetting('hero_title', 'homepage');
+                                      handleSaveSetting('hero_subtitle', 'homepage');
+                                      handleSaveSetting('video_demo_url', 'homepage');
+                                    }}>
+                                      <Save className="h-4 w-4 mr-2" /> Save Hero Section
+                                    </Button>
+                                  </CardContent>
+                                </Card>
+
+                                <Card>
+                                  <CardHeader>
+                                    <CardTitle>SEO Management</CardTitle>
+                                    <p className="text-sm text-slate-500">Configure global SEO settings for the public website.</p>
+                                  </CardHeader>
+                                  <CardContent className="space-y-4">
+                                    <div className="space-y-2">
+                                      <Label htmlFor="seo_title">SEO Title</Label>
+                                      <Input
+                                        id="seo_title"
+                                        placeholder="SabiRight - AI-Powered Civic Empowerment"
+                                        value={localSettings['seo_title'] ?? getSetting('seo_title')}
+                                        onChange={(e) => handleSettingChange('seo_title', e.target.value)}
+                                      />
+                                    </div>
+                                    <div className="space-y-2">
+                                      <Label htmlFor="seo_description">SEO Description</Label>
+                                      <Textarea
+                                        id="seo_description"
+                                        placeholder="Empowering citizens with law-based guidance..."
+                                        value={localSettings['seo_description'] ?? getSetting('seo_description')}
+                                        onChange={(e) => handleSettingChange('seo_description', e.target.value)}
+                                      />
+                                    </div>
+                                    <div className="space-y-2">
+                                      <Label htmlFor="seo_keywords">SEO Keywords (Comma separated)</Label>
+                                      <Input
+                                        id="seo_keywords"
+                                        placeholder="civic tech, law-based guidance, nigeria police act"
+                                        value={localSettings['seo_keywords'] ?? getSetting('seo_keywords')}
+                                        onChange={(e) => handleSettingChange('seo_keywords', e.target.value)}
+                                      />
+                                    </div>
+                                    <Button size="sm" onClick={() => {
+                                      handleSaveSetting('seo_title', 'seo');
+                                      handleSaveSetting('seo_description', 'seo');
+                                      handleSaveSetting('seo_keywords', 'seo');
+                                    }}>
+                                      <Save className="h-4 w-4 mr-2" /> Save SEO Settings
+                                    </Button>
+                                  </CardContent>
+                                </Card>
+
+                                <Card>
+                                  <CardHeader>
+                                    <CardTitle>Features Section</CardTitle>
+                                    <p className="text-sm text-slate-500">Manage the platform advantages graphic text.</p>
+                                  </CardHeader>
+                                  <CardContent className="space-y-4">
+                                    <div className="space-y-2">
+                                      <Label htmlFor="platform_advantages_title">Advantages Title</Label>
+                                      <Input
+                                        id="platform_advantages_title"
+                                        value={localSettings['platform_advantages_title'] ?? getSetting('platform_advantages_title')}
+                                        onChange={(e) => handleSettingChange('platform_advantages_title', e.target.value)}
+                                      />
+                                    </div>
+                                    <Button size="sm" onClick={() => handleSaveSetting('platform_advantages_title', 'homepage')}>
+                                      <Save className="h-4 w-4 mr-2" /> Save Features Section
+                                    </Button>
+                                  </CardContent>
+                                </Card>
+                              </div>
+                            )}
+
+                            {frontendPage === "legal" && (
+                              <div className="space-y-6">
+                                <div className="p-4 bg-amber-50 border border-amber-100 rounded-xl mb-6 flex justify-between items-center">
+                                  <div>
+                                    <h4 className="font-bold text-sm text-amber-700 mb-1">Legal Documents</h4>
+                                    <p className="text-xs text-amber-600">These pages are essential for compliance and trust.</p>
+                                  </div>
+                                  <Button 
+                                    variant="outline" 
+                                    size="sm" 
+                                    className="bg-white border-amber-200 text-amber-800 hover:bg-amber-100"
+                                    onClick={() => {
+                                      if (confirm("This will overwrite existing content with SabiRight templates. Continue?")) {
+                                        const templates: Record<string, string> = {
+                                          privacy_policy: `<h2>Privacy Policy for SabiRight</h2><p><strong>Effective Date:</strong> ${new Date().toLocaleDateString()}</p><p>At SabiRight, we prioritize your privacy and data security in compliance with the Nigeria Data Protection Regulation (NDPR) 2019.</p><h3>1. Information We Collect</h3><ul><li><strong>Personal Information:</strong> Name, email address, phone number, and location data for service matching.</li><li><strong>Usage Data:</strong> Information on how you interact with our AI legal assistant and marketplace.</li></ul><h3>2. How We Use Your Data</h3><p>We use your data to:</p><ul><li>Connect you with verified legal and civic professionals nearby.</li><li>Improve our AI training models (anonymized data only).</li><li>Send critical civic alerts and updates.</li></ul><h3>3. Data Security</h3><p>We implement banking-grade encryption to protect your personal information. We do not sell your data to third parties.</p>`,
+                                          terms_of_service: `<h2>Terms of Service</h2><p><strong>Last Updated:</strong> ${new Date().toLocaleDateString()}</p><p>Welcome to SabiRight. By accessing our platform, you agree to these terms.</p><h3>1. Platform Use</h3><p>SabiRight is a civic engagement tool. The "Right-To-Know" AI provides information based on the 1999 Constitution and Police Act 2020 but does not constitute legal advice.</p><h3>2. User Conduct</h3><p>You agree not to misuse the platform for illegal activities or to harass professionals.</p><h3>3. Professional Services</h3><p>Contractors and lawyers on our platform are independent service providers. SabiRight is not liable for their off-platform conduct.</p>`,
+                                          cookie_policy: `<h2>Cookie Policy</h2><p>SabiRight uses cookies to enhance your experience.</p><ul><li><strong>Essential Cookies:</strong> Required for login and security.</li><li><strong>Analytics Cookies:</strong> Help us understand how you use the platform to improve features.</li></ul><p>You can manage your cookie preferences in your browser settings.</p>`
+                                        };
+                                        Object.entries(templates).forEach(([key, val]) => {
+                                          handleSettingChange(key, val);
+                                          // We don't auto-save to allow review, but we update the local state
+                                        });
+                                        toast({ title: "Templates Loaded", description: "Review and save each document." });
+                                      }
+                                    }}
+                                  >
+                                    <BrainCircuit className="h-4 w-4 mr-2" /> Generate SabiRight Content
+                                  </Button>
+                                </div>
+                                <div className="space-y-8">
+                                  {[
+                                    { key: 'privacy_policy', label: 'Privacy Policy' },
+                                    { key: 'terms_of_service', label: 'Terms of Service' },
+                                    { key: 'cookie_policy', label: 'Cookie Policy' }
+                                  ].map((item) => (
+                                    <Card key={item.key} className="overflow-hidden">
+                                      <CardHeader className="bg-slate-50/50 border-b">
+                                        <div className="flex items-center justify-between">
+                                          <div>
+                                            <CardTitle className="text-lg">{item.label}</CardTitle>
+                                            <CardDescription>Update the content for your {item.label.toLowerCase()}.</CardDescription>
+                                          </div>
+                                          <Button size="sm" onClick={() => handleSaveSetting(item.key, 'legal')}>
+                                            <Save className="h-4 w-4 mr-2" /> Save {item.label}
+                                          </Button>
+                                        </div>
+                                      </CardHeader>
+                                      <CardContent className="p-0">
+                                        <ReactQuill 
+                                          theme="snow" 
+                                          value={localSettings[item.key] ?? getSetting(item.key)} 
+                                          onChange={(val) => handleSettingChange(item.key, val)}
+                                          className="bg-white border-none min-h-[400px]"
+                                          modules={{
+                                            toolbar: [
+                                              [{ 'header': [1, 2, 3, false] }],
+                                              ['bold', 'italic', 'underline', 'strike'],
+                                              [{ 'list': 'ordered'}, { 'list': 'bullet' }],
+                                              ['link', 'clean']
+                                            ]
+                                          }}
+                                        />
+                                      </CardContent>
+                                    </Card>
+                                  ))}
+                                </div>
+                              </div>
+                            )}
+
+                            {frontendPage === "about" && (
+                              <div className="space-y-6">
+                                <Card>
+                                  <CardHeader>
+                                    <CardTitle>About Us Page</CardTitle>
+                                    <p className="text-sm text-slate-500">Manage the content for the About Us page.</p>
+                                  </CardHeader>
+                                  <CardContent className="space-y-4">
+                                    <div className="space-y-2">
+                                      <Label htmlFor="about_content">About Us Content</Label>
+                                      <ReactQuill 
+                                        theme="snow" 
+                                        value={localSettings['about_content'] ?? getSetting('about_content')} 
+                                        onChange={(val) => handleSettingChange('about_content', val)}
+                                        className="bg-white min-h-[400px]"
+                                        modules={{
+                                          toolbar: [
+                                            [{ 'header': [1, 2, 3, 4, 5, 6, false] }],
+                                            ['bold', 'italic', 'underline', 'strike'],
+                                            [{ 'list': 'ordered'}, { 'list': 'bullet' }],
+                                            [{ 'color': [] }, { 'background': [] }],
+                                            ['link', 'image', 'clean']
+                                          ]
+                                        }}
+                                      />
+                                    </div>
+                                    <Button size="sm" onClick={() => handleSaveSetting('about_content', 'frontend')}>
+                                      <Save className="h-4 w-4 mr-2" /> Save About Us Content
+                                    </Button>
+                                  </CardContent>
+                                </Card>
+                              </div>
+                            )}
+
+                            {frontendPage === "contact" && (
+                              <div className="space-y-6">
+                                <Card>
+                                  <CardHeader>
+                                    <CardTitle>Contact Page</CardTitle>
+                                    <p className="text-sm text-slate-500">Manage the content for the Contact page.</p>
+                                  </CardHeader>
+                                  <CardContent className="space-y-4">
+                                    <div className="space-y-2">
+                                      <Label htmlFor="contact_content">Contact Page Content</Label>
+                                      <ReactQuill 
+                                        theme="snow" 
+                                        value={localSettings['contact_content'] ?? getSetting('contact_content')} 
+                                        onChange={(val) => handleSettingChange('contact_content', val)}
+                                        className="bg-white min-h-[400px]"
+                                        modules={{
+                                          toolbar: [
+                                            [{ 'header': [1, 2, 3, 4, 5, 6, false] }],
+                                            ['bold', 'italic', 'underline', 'strike'],
+                                            [{ 'list': 'ordered'}, { 'list': 'bullet' }],
+                                            [{ 'color': [] }, { 'background': [] }],
+                                            ['link', 'image', 'clean']
+                                          ]
+                                        }}
+                                      />
+                                    </div>
+                                    <Button size="sm" onClick={() => handleSaveSetting('contact_content', 'frontend')}>
+                                      <Save className="h-4 w-4 mr-2" /> Save Contact Page Content
+                                    </Button>
+                                  </CardContent>
+                                </Card>
+                              </div>
+                            )}
+
+                            {frontendPage === "footer" && (
+                              <div className="space-y-6">
+                                <Card>
+                                  <CardHeader>
+                                    <CardTitle>Footer Information</CardTitle>
+                                    <p className="text-sm text-slate-500">Manage global footer content and contact details.</p>
+                                  </CardHeader>
+                                  <CardContent className="space-y-4">
+                                    <div className="space-y-2">
+                                      <Label htmlFor="footer_about">Footer About Text</Label>
+                                      <Textarea
+                                        id="footer_about"
+                                        placeholder="SabiRight is Nigeria's unified platform..."
+                                        value={localSettings['footer_about'] ?? getSetting('footer_about')}
+                                        onChange={(e) => handleSettingChange('footer_about', e.target.value)}
+                                      />
+                                    </div>
+                                    <div className="space-y-2">
+                                      <Label htmlFor="footer_address">Physical Address</Label>
+                                      <Input
+                                        id="footer_address"
+                                        placeholder="Lagos, Nigeria"
+                                        value={localSettings['footer_address'] ?? getSetting('footer_address')}
+                                        onChange={(e) => handleSettingChange('footer_address', e.target.value)}
+                                      />
+                                    </div>
+                                    <div className="space-y-2">
+                                      <Label htmlFor="footer_phone">Contact Phone</Label>
+                                      <Input
+                                        id="footer_phone"
+                                        placeholder="+234 ..."
+                                        value={localSettings['footer_phone'] ?? getSetting('footer_phone')}
+                                        onChange={(e) => handleSettingChange('footer_phone', e.target.value)}
+                                      />
+                                    </div>
+                                    
+                                    <div className="pt-4 border-t mt-4">
+                                      <h4 className="font-bold text-sm mb-4">Social Media Links</h4>
+                                      <div className="grid md:grid-cols-2 gap-4">
+                                        {[
+                                          { key: 'social_facebook', label: 'Facebook URL' },
+                                          { key: 'social_twitter', label: 'Twitter / X URL' },
+                                          { key: 'social_instagram', label: 'Instagram URL' },
+                                          { key: 'social_linkedin', label: 'LinkedIn URL' },
+                                          { key: 'social_youtube', label: 'YouTube URL' },
+                                          { key: 'social_whatsapp', label: 'WhatsApp Link' }
+                                        ].map(social => (
+                                          <div key={social.key} className="space-y-2">
+                                            <Label htmlFor={social.key}>{social.label}</Label>
+                                            <Input
+                                              id={social.key}
+                                              placeholder="https://..."
+                                              value={localSettings[social.key] ?? getSetting(social.key)}
+                                              onChange={(e) => handleSettingChange(social.key, e.target.value)}
+                                            />
+                                          </div>
+                                        ))}
+                                      </div>
+                                    </div>
+
+                                    <Button size="sm" onClick={() => {
+                                      handleSaveSetting('footer_about', 'frontend');
+                                      handleSaveSetting('footer_address', 'frontend');
+                                      handleSaveSetting('footer_phone', 'frontend');
+                                      ['social_facebook', 'social_twitter', 'social_instagram', 'social_linkedin', 'social_youtube', 'social_whatsapp'].forEach(key => {
+                                        handleSaveSetting(key, 'social');
+                                      });
+                                    }}>
+                                      <Save className="h-4 w-4 mr-2" /> Save Footer Info
+                                    </Button>
+                                  </CardContent>
+                                </Card>
+                              </div>
+                            )}
+                          </div>
+                        </Tabs>
+                      </CardContent>
+                    </Card>
+                  </div>
+                </TabsContent>
+
+                  {/* Settings Tab */}
+                  <TabsContent value="settings" className="mt-0">
             <div className="space-y-6">
               <Card>
                 <CardHeader>
                   <CardTitle>Platform Branding</CardTitle>
-                  <p className="text-sm text-slate-500">Configure your platform's visual identity and basic information.</p>
+                  <p className="text-sm text-slate-500">Configure your platform's visual identity for light and dark modes.</p>
                 </CardHeader>
                 <CardContent className="space-y-6">
                   <div className="grid md:grid-cols-2 gap-6">
@@ -1516,7 +2777,7 @@ export default function AdminDashboard() {
                       <div className="flex gap-2">
                         <Input
                           id="site_title"
-                          placeholder="DigiZen AI"
+                          placeholder="SabiRight"
                           value={localSettings['site_title'] ?? getSetting('site_title')}
                           onChange={(e) => handleSettingChange('site_title', e.target.value)}
                         />
@@ -1524,7 +2785,6 @@ export default function AdminDashboard() {
                           <Save className="h-4 w-4" />
                         </Button>
                       </div>
-                      <p className="text-[10px] text-slate-500">The name of your platform as it appears in the browser tab and emails.</p>
                     </div>
 
                     {/* Contact Email */}
@@ -1533,7 +2793,7 @@ export default function AdminDashboard() {
                       <div className="flex gap-2">
                         <Input
                           id="contact_email"
-                          placeholder="support@digizen.ai"
+                          placeholder="support@sabiright.com"
                           value={localSettings['contact_email'] ?? getSetting('contact_email')}
                           onChange={(e) => handleSettingChange('contact_email', e.target.value)}
                         />
@@ -1544,124 +2804,183 @@ export default function AdminDashboard() {
                     </div>
                   </div>
 
-                  <div className="grid md:grid-cols-2 gap-6">
-                    {/* Logo URL */}
-                    <div className="space-y-2">
-                      <Label htmlFor="site_logo">Logo URL</Label>
-                      <div className="flex gap-2">
-                        <Input
-                          id="site_logo"
-                          placeholder="https://example.com/logo.png"
-                          value={localSettings['site_logo'] ?? getSetting('site_logo')}
-                          onChange={(e) => handleSettingChange('site_logo', e.target.value)}
-                        />
-                        <div className="relative">
+                  <div className="grid md:grid-cols-2 gap-8 pt-4 border-t">
+                    {/* Light Mode Branding */}
+                    <div className="space-y-6">
+                      <h4 className="font-bold text-sm flex items-center gap-2">
+                        <Star className="h-4 w-4 text-amber-500" /> Light Mode Assets
+                      </h4>
+                      
+                      {/* Light Logo */}
+                      <div className="space-y-2">
+                        <Label htmlFor="site_logo">Light Logo URL</Label>
+                        <div className="flex gap-2">
                           <Input
-                            type="file"
-                            accept="image/*"
-                            className="hidden"
-                            id="logo-upload"
-                            onChange={async (e) => {
-                              const file = e.target.files?.[0];
-                              if (file) {
-                                const formData = new FormData();
-                                formData.append('file', file);
-                                try {
-                                  const res = await fetch('/api/upload', {
-                                    method: 'POST',
-                                    body: formData
-                                  });
-                                  const data = await res.json();
-                                  if (data.url) {
-                                    handleSettingChange('site_logo', data.url);
-                                    toast({ title: "Uploaded", description: "Logo uploaded successfully. Click save to apply." });
-                                  }
-                                } catch (err) {
-                                  toast({ title: "Upload Failed", description: "Failed to upload logo", variant: "destructive" });
-                                }
-                              }
-                            }}
+                            id="site_logo"
+                            placeholder="https://example.com/logo-light.png"
+                            value={localSettings['site_logo'] ?? getSetting('site_logo')}
+                            onChange={(e) => handleSettingChange('site_logo', e.target.value)}
                           />
                           <Button 
                             variant="outline" 
                             size="sm" 
-                            onClick={() => document.getElementById('logo-upload')?.click()}
+                            onClick={() => document.getElementById('logo-light-upload')?.click()}
                           >
                             <Upload className="h-4 w-4" />
                           </Button>
+                          <input type="file" id="logo-light-upload" className="hidden" accept="image/*" onChange={(e) => handleFileUpload(e, 'site_logo')} />
+                          <Button size="sm" onClick={() => handleSaveSetting('site_logo', 'branding')}>
+                            <Save className="h-4 w-4" />
+                          </Button>
                         </div>
-                        <Button size="sm" onClick={() => handleSaveSetting('site_logo', 'branding')}>
-                          <Save className="h-4 w-4" />
-                        </Button>
+                        <div className="h-20 border rounded bg-slate-50 flex items-center justify-center p-2">
+                          {(localSettings['site_logo'] ?? getSetting('site_logo')) ? <img src={localSettings['site_logo'] ?? getSetting('site_logo')} className="max-h-full" /> : <span className="text-xs text-slate-400">No logo</span>}
+                        </div>
                       </div>
-                      <div className="mt-2 p-2 border rounded bg-slate-50 flex items-center justify-center h-20">
-                        {(localSettings['site_logo'] ?? getSetting('site_logo')) ? (
-                          <img src={localSettings['site_logo'] ?? getSetting('site_logo')} alt="Logo Preview" className="max-h-full max-w-full object-contain" />
-                        ) : (
-                          <span className="text-xs text-slate-400">No logo set</span>
-                        )}
+
+                      {/* Light Favicon */}
+                      <div className="space-y-2">
+                        <Label htmlFor="site_favicon">Light Favicon URL</Label>
+                        <div className="flex gap-2">
+                          <Input
+                            id="site_favicon"
+                            placeholder="https://example.com/favicon-light.ico"
+                            value={localSettings['site_favicon'] ?? getSetting('site_favicon')}
+                            onChange={(e) => handleSettingChange('site_favicon', e.target.value)}
+                          />
+                          <Button 
+                            variant="outline" 
+                            size="sm" 
+                            onClick={() => document.getElementById('fav-light-upload')?.click()}
+                          >
+                            <Upload className="h-4 w-4" />
+                          </Button>
+                          <input type="file" id="fav-light-upload" className="hidden" accept="image/*" onChange={(e) => handleFileUpload(e, 'site_favicon')} />
+                          <Button size="sm" onClick={() => handleSaveSetting('site_favicon', 'branding')}>
+                            <Save className="h-4 w-4" />
+                          </Button>
+                        </div>
                       </div>
                     </div>
 
-                    {/* Favicon URL */}
-                    <div className="space-y-2">
-                      <Label htmlFor="site_favicon">Favicon URL</Label>
-                      <div className="flex gap-2">
-                        <Input
-                          id="site_favicon"
-                          placeholder="https://example.com/favicon.ico"
-                          value={localSettings['site_favicon'] ?? getSetting('site_favicon')}
-                          onChange={(e) => handleSettingChange('site_favicon', e.target.value)}
-                        />
-                        <div className="relative">
+                    {/* Dark Mode Branding */}
+                    <div className="space-y-6">
+                      <h4 className="font-bold text-sm flex items-center gap-2">
+                        <Star className="h-4 w-4 text-indigo-500 fill-indigo-500" /> Dark Mode Assets
+                      </h4>
+                      
+                      {/* Dark Logo */}
+                      <div className="space-y-2">
+                        <Label htmlFor="site_logo_dark">Dark Logo URL</Label>
+                        <div className="flex gap-2">
                           <Input
-                            type="file"
-                            accept="image/*"
-                            className="hidden"
-                            id="favicon-upload"
-                            onChange={async (e) => {
-                              const file = e.target.files?.[0];
-                              if (file) {
-                                const formData = new FormData();
-                                formData.append('file', file);
-                                try {
-                                  const res = await fetch('/api/upload', {
-                                    method: 'POST',
-                                    body: formData
-                                  });
-                                  const data = await res.json();
-                                  if (data.url) {
-                                    handleSettingChange('site_favicon', data.url);
-                                    toast({ title: "Uploaded", description: "Favicon uploaded successfully. Click save to apply." });
-                                  }
-                                } catch (err) {
-                                  toast({ title: "Upload Failed", description: "Failed to upload favicon", variant: "destructive" });
-                                }
-                              }
-                            }}
+                            id="site_logo_dark"
+                            placeholder="https://example.com/logo-dark.png"
+                            value={localSettings['site_logo_dark'] ?? getSetting('site_logo_dark')}
+                            onChange={(e) => handleSettingChange('site_logo_dark', e.target.value)}
                           />
                           <Button 
                             variant="outline" 
                             size="sm" 
-                            onClick={() => document.getElementById('favicon-upload')?.click()}
+                            onClick={() => document.getElementById('logo-dark-upload')?.click()}
                           >
                             <Upload className="h-4 w-4" />
                           </Button>
+                          <input type="file" id="logo-dark-upload" className="hidden" accept="image/*" onChange={(e) => handleFileUpload(e, 'site_logo_dark')} />
+                          <Button size="sm" onClick={() => handleSaveSetting('site_logo_dark', 'branding')}>
+                            <Save className="h-4 w-4" />
+                          </Button>
                         </div>
-                        <Button size="sm" onClick={() => handleSaveSetting('site_favicon', 'branding')}>
-                          <Save className="h-4 w-4" />
-                        </Button>
+                        <div className="h-20 border rounded bg-slate-900 flex items-center justify-center p-2">
+                          {(localSettings['site_logo_dark'] ?? getSetting('site_logo_dark')) ? <img src={localSettings['site_logo_dark'] ?? getSetting('site_logo_dark')} className="max-h-full" /> : <span className="text-xs text-slate-400">No logo</span>}
+                        </div>
                       </div>
-                      <div className="mt-2 p-2 border rounded bg-slate-50 flex items-center justify-center h-20">
-                        {(localSettings['site_favicon'] ?? getSetting('site_favicon')) ? (
-                          <img src={localSettings['site_favicon'] ?? getSetting('site_favicon')} alt="Favicon Preview" className="h-8 w-8 object-contain" />
-                        ) : (
-                          <span className="text-xs text-slate-400">No favicon set</span>
-                        )}
+
+                      {/* Dark Favicon */}
+                      <div className="space-y-2">
+                        <Label htmlFor="site_favicon_dark">Dark Favicon URL</Label>
+                        <div className="flex gap-2">
+                          <Input
+                            id="site_favicon_dark"
+                            placeholder="https://example.com/favicon-dark.ico"
+                            value={localSettings['site_favicon_dark'] ?? getSetting('site_favicon_dark')}
+                            onChange={(e) => handleSettingChange('site_favicon_dark', e.target.value)}
+                          />
+                          <Button 
+                            variant="outline" 
+                            size="sm" 
+                            onClick={() => document.getElementById('fav-dark-upload')?.click()}
+                          >
+                            <Upload className="h-4 w-4" />
+                          </Button>
+                          <input type="file" id="fav-dark-upload" className="hidden" accept="image/*" onChange={(e) => handleFileUpload(e, 'site_favicon_dark')} />
+                          <Button size="sm" onClick={() => handleSaveSetting('site_favicon_dark', 'branding')}>
+                            <Save className="h-4 w-4" />
+                          </Button>
+                        </div>
                       </div>
                     </div>
                   </div>
+                </CardContent>
+              </Card>
 
+              <Card>
+                <CardHeader>
+                  <CardTitle>Video Snippet Management</CardTitle>
+                  <p className="text-sm text-slate-500">Manage the video featured on the homepage.</p>
+                </CardHeader>
+                <CardContent className="space-y-4">
+                  <div className="space-y-2">
+                    <Label htmlFor="video_demo_url">Homepage Video URL (YouTube Link)</Label>
+                    <div className="flex gap-2">
+                      <Input
+                        id="video_demo_url"
+                        placeholder="https://www.youtube.com/watch?v=..."
+                        value={localSettings['video_demo_url'] ?? getSetting('video_demo_url')}
+                        onChange={(e) => handleSettingChange('video_demo_url', e.target.value)}
+                      />
+                      <Button size="sm" onClick={() => handleSaveSetting('video_demo_url', 'branding')}>
+                        <Save className="h-4 w-4" />
+                      </Button>
+                    </div>
+                    <p className="text-[10px] text-slate-500">Paste a YouTube link here. The platform will automatically convert it to an embeddable format.</p>
+                  </div>
+                </CardContent>
+              </Card>
+
+              <Card>
+                <CardHeader>
+                  <CardTitle>Social Media Links</CardTitle>
+                  <p className="text-sm text-slate-500">Configure the social media links shown in the footer.</p>
+                </CardHeader>
+                <CardContent className="space-y-4">
+                  <div className="grid md:grid-cols-2 gap-4">
+                    {['facebook', 'twitter', 'instagram', 'linkedin', 'youtube', 'whatsapp'].map((platform) => (
+                      <div key={platform} className="space-y-2">
+                        <Label htmlFor={`social_${platform}`} className="capitalize">{platform}</Label>
+                        <div className="flex gap-2">
+                          <Input
+                            id={`social_${platform}`}
+                            placeholder={`https://${platform}.com/sabiright`}
+                            value={localSettings[`social_${platform}`] ?? getSetting(`social_${platform}`)}
+                            onChange={(e) => handleSettingChange(`social_${platform}`, e.target.value)}
+                          />
+                          <Button size="sm" onClick={() => handleSaveSetting(`social_${platform}`, 'social')}>
+                            <Save className="h-4 w-4" />
+                          </Button>
+                        </div>
+                      </div>
+                    ))}
+                  </div>
+                </CardContent>
+              </Card>
+
+              <Card>
+                <CardHeader>
+                  <CardTitle>Color Settings</CardTitle>
+                  <p className="text-sm text-slate-500">Manage the primary and secondary colors for your platform branding.</p>
+                </CardHeader>
+                <CardContent className="space-y-4">
                   <div className="grid md:grid-cols-2 gap-6">
                     {/* Primary Color */}
                     <div className="space-y-2">
@@ -1721,7 +3040,7 @@ export default function AdminDashboard() {
                     <div className="flex gap-2">
                       <Textarea
                         id="seo_description"
-                        placeholder="DigiZen AI is a comprehensive platform for..."
+                        placeholder="SabiRight is a comprehensive platform for..."
                         value={localSettings['seo_description'] ?? getSetting('seo_description')}
                         onChange={(e) => handleSettingChange('seo_description', e.target.value)}
                       />
@@ -1746,6 +3065,57 @@ export default function AdminDashboard() {
                     </div>
                     <p className="text-[10px] text-slate-500">Comma-separated list of keywords for SEO.</p>
                   </div>
+
+                  <div className="space-y-2">
+                    <Label htmlFor="og_image">Open Graph Image URL (SEO)</Label>
+                    <div className="flex gap-2">
+                      <Input
+                        id="og_image"
+                        placeholder="https://example.com/og-image.jpg"
+                        value={localSettings['og_image'] ?? getSetting('og_image')}
+                        onChange={(e) => handleSettingChange('og_image', e.target.value)}
+                      />
+                      <div className="flex gap-2">
+                        <input
+                          type="file"
+                          id="og-image-upload"
+                          className="hidden"
+                          accept="image/*"
+                          onChange={async (e) => {
+                            const file = e.target.files?.[0];
+                            if (file) {
+                              const formData = new FormData();
+                              formData.append('file', file);
+                              try {
+                                const res = await fetch('/api/upload', {
+                                  method: 'POST',
+                                  body: formData
+                                });
+                                const data = await res.json();
+                                if (data.url) {
+                                  handleSettingChange('og_image', data.url);
+                                  toast({ title: "Uploaded", description: "OG Image uploaded. Click save to apply." });
+                                }
+                              } catch (err) {
+                                toast({ title: "Upload Failed", description: "Failed to upload image", variant: "destructive" });
+                              }
+                            }
+                          }}
+                        />
+                        <Button 
+                          variant="outline" 
+                          size="sm" 
+                          onClick={() => document.getElementById('og-image-upload')?.click()}
+                        >
+                          <Upload className="h-4 w-4" />
+                        </Button>
+                      </div>
+                      <Button size="sm" onClick={() => handleSaveSetting('og_image', 'seo')}>
+                        <Save className="h-4 w-4" />
+                      </Button>
+                    </div>
+                    <p className="text-[10px] text-slate-500">The image displayed when your site is shared on social media (1200x630 recommended).</p>
+                  </div>
                 </CardContent>
               </Card>
 
@@ -1755,19 +3125,50 @@ export default function AdminDashboard() {
                 </CardHeader>
                 <CardContent className="space-y-6">
                   <div className="space-y-2">
-                    <Label htmlFor="footer_text">Footer Copyright Text</Label>
-                    <div className="flex gap-2">
-                      <Input
-                        id="footer_text"
-                        placeholder="© 2024 DigiZen AI. All rights reserved."
-                        value={localSettings['footer_text'] ?? getSetting('footer_text')}
-                        onChange={(e) => handleSettingChange('footer_text', e.target.value)}
-                      />
-                      <Button size="sm" onClick={() => handleSaveSetting('footer_text', 'branding')}>
-                        <Save className="h-4 w-4" />
+                      <Label htmlFor="footer_text">Footer Copyright Text</Label>
+                      <div className="flex gap-2">
+                        <Input
+                          id="footer_text"
+                          placeholder="© 2024 SabiRight. All rights reserved."
+                          value={localSettings['footer_text'] ?? getSetting('footer_text')}
+                          onChange={(e) => handleSettingChange('footer_text', e.target.value)}
+                        />
+                        <Button size="sm" onClick={() => handleSaveSetting('footer_text', 'branding')}>
+                          <Save className="h-4 w-4" />
+                        </Button>
+                      </div>
+                    </div>
+
+                    <div className="pt-4 border-t space-y-4">
+                      <Label className="text-sm font-bold">Social Media Links</Label>
+                      <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                        {Object.entries(socialLinks).map(([platform, value]) => (
+                          <div key={platform} className="space-y-1">
+                            <Label htmlFor={`social_${platform}`} className="text-xs capitalize">{platform}</Label>
+                            <Input
+                              id={`social_${platform}`}
+                              placeholder={`https://${platform}.com/yourprofile`}
+                              value={value}
+                              onChange={(e) => setSocialLinks(prev => ({ ...prev, [platform]: e.target.value }))}
+                              className="h-8 text-xs"
+                            />
+                          </div>
+                        ))}
+                      </div>
+                      <Button 
+                        size="sm" 
+                        className="w-full mt-2"
+                        onClick={() => {
+                          saveSetting.mutate({ 
+                            key: 'social_links', 
+                            value: JSON.stringify(socialLinks), 
+                            category: 'branding' 
+                          });
+                        }}
+                      >
+                        <Save className="h-4 w-4 mr-2" /> Save Social Links
                       </Button>
                     </div>
-                  </div>
                 </CardContent>
               </Card>
 
@@ -1794,6 +3195,20 @@ export default function AdminDashboard() {
                     </Button>
                   </div>
 
+                  <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4 p-4 border border-blue-100 rounded-lg bg-white">
+                    <div>
+                      <h4 className="font-bold text-blue-800">Export MOAT Data</h4>
+                      <p className="text-sm text-slate-500">Download MOAT intelligence data for model training (JSON format).</p>
+                    </div>
+                    <Button 
+                      variant="outline" 
+                      className="border-blue-200 text-blue-700 hover:bg-blue-50"
+                      onClick={handleExportMoatData}
+                    >
+                      <Download className="h-4 w-4 mr-2" /> Export MOAT Data
+                    </Button>
+                  </div>
+
                   <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4 p-4 border border-red-100 rounded-lg bg-white">
                     <div>
                       <h4 className="font-bold text-red-700">Clear System Cache</h4>
@@ -1813,138 +3228,506 @@ export default function AdminDashboard() {
                   </div>
                 </CardContent>
               </Card>
+
+              {/* Push Notification Configuration Guide */}
+              <Card>
+                <CardHeader>
+                  <CardTitle className="flex items-center gap-2">
+                    <Smartphone className="h-5 w-5 text-purple-500" />
+                    Push Notification Configuration Guide
+                  </CardTitle>
+                </CardHeader>
+                <CardContent className="space-y-4">
+                  <div className="bg-slate-50 p-4 rounded-lg border border-slate-200">
+                    <h4 className="font-semibold text-sm mb-2">Step 1: Firebase Project Setup</h4>
+                    <p className="text-sm text-slate-600 mb-2">
+                      1. Go to the <a href="https://console.firebase.google.com/" target="_blank" rel="noopener noreferrer" className="text-blue-500 hover:underline">Firebase Console</a>.<br />
+                      2. Select your project or create a new one.<br />
+                      3. Go to <strong>Project Settings</strong> (gear icon) &gt; <strong>Service Accounts</strong>.<br />
+                      4. Click <strong>Generate New Private Key</strong> and download the JSON file.
+                    </p>
+                  </div>
+
+                  <div className="bg-slate-50 p-4 rounded-lg border border-slate-200">
+                    <h4 className="font-semibold text-sm mb-2">Step 2: Server-Side Configuration</h4>
+                    <p className="text-sm text-slate-600 mb-2">
+                      1. Open your server environment variables or <code>.env</code> file.<br />
+                      2. Add the content of the downloaded JSON file to <code>FIREBASE_SERVICE_ACCOUNT</code>.<br />
+                      3. Ensure <code>FIREBASE_PROJECT_ID</code> is also set correctly.
+                    </p>
+                  </div>
+
+                  <div className="bg-slate-50 p-4 rounded-lg border border-slate-200">
+                    <h4 className="font-semibold text-sm mb-2">Step 3: Client-Side Configuration</h4>
+                    <p className="text-sm text-slate-600 mb-2">
+                      1. Go to <strong>Project Settings</strong> &gt; <strong>General</strong> &gt; <strong>Your Apps</strong>.<br />
+                      2. Add a Web App if you haven't already.<br />
+                      3. Copy the <code>firebaseConfig</code> object and update it in your client-side config file.<br />
+                      4. Go to <strong>Cloud Messaging</strong> tab and generate a <strong>VAPID key</strong> in the Web configuration section.
+                    </p>
+                  </div>
+
+                  <div className="bg-slate-50 p-4 rounded-lg border border-slate-200">
+                    <h4 className="font-semibold text-sm mb-2">Step 4: User Subscription</h4>
+                    <p className="text-sm text-slate-600 mb-2">
+                      Users will be prompted to allow notifications when they log in or visit the settings page. Once they allow, their device token is securely stored and linked to their profile.
+                    </p>
+                  </div>
+                  
+                  <div className="flex items-center gap-2 text-amber-600 bg-amber-50 p-3 rounded border border-amber-200">
+                    <AlertTriangle className="h-5 w-5" />
+                    <p className="text-xs font-medium">
+                      Note: Push notifications require a secure (HTTPS) connection or localhost to work in modern browsers.
+                    </p>
+                  </div>
+                </CardContent>
+              </Card>
             </div>
           </TabsContent>
 
           {/* API Keys Tab */}
           <TabsContent value="api-keys">
-            <Card>
-              <CardHeader>
-                <CardTitle>Platform API Keys</CardTitle>
-                <p className="text-sm text-slate-500">Configure external service connections. Payment keys are managed in Payment Methods tab.</p>
-              </CardHeader>
-              <CardContent className="space-y-6">
-                {/* AI Configuration */}
-                <div className="space-y-4">
-                  <h3 className="text-sm font-bold flex items-center gap-2">
-                    <Shield className="h-4 w-4 text-blue-500" />
-                    AI Provider Settings
-                  </h3>
-                  <div className="grid md:grid-cols-2 gap-4 p-4 bg-slate-50 rounded-lg border">
-                    <div className="space-y-2">
-                      <Label>Default AI Provider</Label>
-                      <Select 
-                        value={localSettings['ai_provider'] ?? getSetting('ai_provider') ?? 'google'}
-                        onValueChange={(v) => handleSettingChange('ai_provider', v)}
-                      >
-                        <SelectTrigger>
-                          <SelectValue placeholder="Select provider" />
-                        </SelectTrigger>
-                        <SelectContent>
-                          <SelectItem value="google">Google Gemini (Default)</SelectItem>
-                          <SelectItem value="openai">OpenAI (ChatGPT)</SelectItem>
-                        </SelectContent>
-                      </Select>
-                      <p className="text-[10px] text-slate-500">Choose which AI service powers suggestions across the platform.</p>
+            <div className="grid gap-6">
+              <Card className="border-none shadow-sm overflow-hidden">
+                <CardHeader className="bg-white border-b">
+                  <div className="flex items-center justify-between">
+                    <div>
+                      <CardTitle className="text-lg">AI Configuration</CardTitle>
+                      <CardDescription>Configure the primary AI engines powering your platform features.</CardDescription>
                     </div>
-                    <div className="flex items-end pb-1">
-                      <Button size="sm" onClick={() => handleSaveSetting('ai_provider', 'ai')}>Save Provider</Button>
+                    <Badge variant="outline" className="bg-blue-50 text-blue-700 border-blue-200">
+                      <ShieldCheck className="h-3 w-3 mr-1" /> Enterprise Ready
+                    </Badge>
+                  </div>
+                </CardHeader>
+                <CardContent className="p-6 space-y-8 bg-slate-50/30">
+                  <div className="grid md:grid-cols-2 gap-8">
+                    <div className="space-y-6">
+                      <div className="p-4 bg-white rounded-xl border shadow-sm space-y-4">
+                        <div className="flex items-center gap-2 mb-2">
+                          <div className="h-8 w-8 rounded-lg bg-blue-100 flex items-center justify-center">
+                            <Settings className="h-4 w-4 text-blue-600" />
+                          </div>
+                          <h3 className="font-bold text-sm">Provider Selection</h3>
+                        </div>
+                        <div className="space-y-2">
+                          <Label className="text-xs">Primary AI Model</Label>
+                          <Select 
+                            value={localSettings['ai_provider'] ?? getSetting('ai_provider') ?? 'google'}
+                            onValueChange={(v) => handleSettingChange('ai_provider', v)}
+                          >
+                            <SelectTrigger className="h-9">
+                              <SelectValue placeholder="Select provider" />
+                            </SelectTrigger>
+                            <SelectContent>
+                              <SelectItem value="google">Google Gemini Pro (Default)</SelectItem>
+                              <SelectItem value="openai">OpenAI GPT-4o</SelectItem>
+                              <SelectItem value="anthropic">Anthropic Claude 3.5</SelectItem>
+                              <SelectItem value="deepseek">DeepSeek V3 (Free/Fast)</SelectItem>
+                              <SelectItem value="groq">Groq (Llama 3/Mixtral) - Free/Fast</SelectItem>
+                              <SelectItem value="openrouter">OpenRouter (Multi-Provider)</SelectItem>
+                              <SelectItem value="perplexity">Perplexity (Search AI)</SelectItem>
+                              <SelectItem value="mistral">Mistral AI (Open Source)</SelectItem>
+                            </SelectContent>
+                          </Select>
+                          <p className="text-[10px] text-slate-500">The default model used for intelligent suggestions and automated tasks.</p>
+                        </div>
+                        <Button className="w-full h-9" size="sm" onClick={() => handleSaveSetting('ai_provider', 'ai')}>
+                          Update Provider
+                        </Button>
+                      </div>
+
+                      <div className="space-y-4">
+                        <h3 className="text-xs font-bold uppercase tracking-wider text-slate-400 px-1">AI Credentials</h3>
+                        <div className="grid gap-4">
+                          <ApiKeyField 
+                            label="Google Gemini API Key" 
+                            id="google_gemini_api_key" 
+                            category="ai" 
+                            placeholder="AIzaSy..." 
+                            description="Used for main content analysis and chatbot."
+                          />
+                          <ApiKeyField 
+                            label="OpenAI API Key" 
+                            id="openai_api_key" 
+                            category="ai" 
+                            placeholder="sk-..." 
+                            description="Backup provider for complex reasoning tasks."
+                          />
+                          <ApiKeyField 
+                            label="Anthropic Claude API Key" 
+                            id="anthropic_api_key" 
+                            category="ai" 
+                            placeholder="sk-ant-..." 
+                            description="Claude 3.5 Sonnet/Opus for high-quality generation."
+                          />
+                          <ApiKeyField 
+                            label="Groq API Key" 
+                            id="groq_api_key" 
+                            category="ai" 
+                            placeholder="gsk_..." 
+                            description="Fast & Free Llama 3 / Mixtral models via Groq Cloud."
+                          />
+                        </div>
+                      </div>
+
+                      <div className="space-y-4 pt-4 border-t">
+                        <h3 className="text-xs font-bold uppercase tracking-wider text-slate-400 px-1">Free AI Models</h3>
+                        <div className="grid gap-4">
+                          <ApiKeyField 
+                            label="DeepSeek API Key" 
+                            id="deepseek_api_key" 
+                            category="ai" 
+                            placeholder="sk-..." 
+                            description="DeepSeek Coder/Chat - High performance free/cheap alternative."
+                          />
+                          <ApiKeyField 
+                            label="OpenRouter API Key" 
+                            id="openrouter_api_key" 
+                            category="ai" 
+                            placeholder="sk-or-..." 
+                            description="Access multiple free models (Llama, Mistral, etc) via OpenRouter."
+                          />
+                          <ApiKeyField 
+                            label="HuggingFace Token" 
+                            id="huggingface_api_key" 
+                            category="ai" 
+                            placeholder="hf_..." 
+                            description="Access thousands of open-source models for free."
+                          />
+                          <ApiKeyField 
+                            label="Perplexity API Key" 
+                            id="perplexity_api_key" 
+                            category="ai" 
+                            placeholder="pplx-..." 
+                            description="Search-augmented AI generation."
+                          />
+                          <ApiKeyField 
+                            label="Mistral API Key" 
+                            id="mistral_api_key" 
+                            category="ai" 
+                            placeholder="sk-..." 
+                            description="Access high-performance open-source models via Mistral AI."
+                          />
+                        </div>
+                      </div>
+                    </div>
+
+                    <div className="space-y-6">
+                      <div className="space-y-4">
+                        <div className="flex items-center justify-between px-1">
+                          <h3 className="text-xs font-bold uppercase tracking-wider text-slate-400">Infrastructure & Maps</h3>
+                          <Dialog>
+                            <DialogTrigger asChild>
+                              <Button variant="link" size="sm" className="h-auto p-0 text-[10px] text-blue-600 font-bold uppercase tracking-tight">
+                                Setup Guide
+                              </Button>
+                            </DialogTrigger>
+                            <DialogContent className="max-w-2xl">
+                              <DialogHeader>
+                                <DialogTitle>Google Maps API Setup Guide</DialogTitle>
+                                <DialogDescription>
+                                  Follow these steps to enable SabiMove and location services.
+                                </DialogDescription>
+                              </DialogHeader>
+                              <div className="space-y-4 py-4">
+                                <div className="space-y-2">
+                                  <h4 className="font-bold text-sm">1. Create a Google Cloud Project</h4>
+                                  <p className="text-sm text-slate-600">Go to the <a href="https://console.cloud.google.com/" target="_blank" rel="noreferrer" className="text-blue-600 underline">Google Cloud Console</a> and create a new project.</p>
+                                </div>
+                                <div className="space-y-2">
+                                  <h4 className="font-bold text-sm">2. Enable Required APIs</h4>
+                                  <p className="text-sm text-slate-600">Search for and enable the following APIs in your project:</p>
+                                  <ul className="list-disc list-inside text-sm text-slate-600 ml-2">
+                                    <li>Maps JavaScript API (for map display)</li>
+                                    <li>Geocoding API (for address search)</li>
+                                    <li>Directions API (for route calculation)</li>
+                                    <li>Distance Matrix API (for traffic analysis)</li>
+                                  </ul>
+                                </div>
+                                <div className="space-y-2">
+                                  <h4 className="font-bold text-sm">3. Create API Key</h4>
+                                  <p className="text-sm text-slate-600">Go to <strong>APIs &amp; Services &gt; Credentials</strong>, click <strong>Create Credentials &gt; API Key</strong>.</p>
+                                </div>
+                                <div className="space-y-2">
+                                  <h4 className="font-bold text-sm">4. Restrict Your Key (Recommended)</h4>
+                                  <p className="text-sm text-slate-600">Restrict the key to only the APIs listed above to prevent unauthorized usage and stay within free tier limits.</p>
+                                </div>
+                                <div className="p-4 bg-blue-50 border border-blue-100 rounded-lg">
+                                  <p className="text-xs text-blue-800 leading-relaxed">
+                                    <strong>Pro Tip:</strong> SabiMove uses these APIs to provide real-time traffic updates and "cloaked" route status. Ensure your billing is active on Google Cloud to avoid service interruptions.
+                                  </p>
+                                </div>
+                              </div>
+                            </DialogContent>
+                          </Dialog>
+                        </div>
+                        <div className="grid gap-4">
+                          <ApiKeyField 
+                            label="Google Maps API Key" 
+                            id="google_maps_api_key" 
+                            category="maps" 
+                            placeholder="AIza..." 
+                            description="Powers SabiMove, location search, and service radius mapping."
+                          />
+                        </div>
+                      </div>
+
+                      <div className="space-y-4 pt-2">
+                        <h3 className="text-xs font-bold uppercase tracking-wider text-slate-400 px-1">Security (reCAPTCHA v3)</h3>
+                        <div className="grid gap-4">
+                          <ApiKeyField 
+                            label="Site Key" 
+                            id="captcha_site_key" 
+                            category="security" 
+                            isSecret={false}
+                            placeholder="Public Site Key" 
+                          />
+                          <ApiKeyField 
+                            label="Secret Key" 
+                            id="captcha_secret_key" 
+                            category="security" 
+                            placeholder="Private Secret Key" 
+                          />
+                        </div>
+                      </div>
                     </div>
                   </div>
 
-                  <div className="grid md:grid-cols-2 gap-6">
-                    <div className="space-y-4">
-                      <div className="space-y-2">
-                        <Label className="flex items-center justify-between">
-                          Google Gemini API Key
-                          <Button variant="ghost" size="sm" className="h-6 text-[10px]" onClick={() => setShowSecrets(!showSecrets)}>
-                            {showSecrets ? <EyeOff className="h-3 w-3 mr-1" /> : <Eye className="h-3 w-3 mr-1" />}
-                            {showSecrets ? 'Hide' : 'Show'}
-                          </Button>
-                        </Label>
-                        <div className="flex gap-2">
-                          <Input
-                            type={showSecrets ? "text" : "password"}
-                            placeholder="AIzaSy..."
-                            value={localSettings['google_gemini_api_key'] ?? getSetting('google_gemini_api_key')}
-                            onChange={(e) => handleSettingChange('google_gemini_api_key', e.target.value)}
-                          />
-                          <Button size="sm" onClick={() => handleSaveSetting('google_gemini_api_key', 'ai', true)}>
-                            <Save className="h-4 w-4" />
-                          </Button>
-                        </div>
+                  <div className="pt-6 border-t border-slate-200">
+                    <div className="flex items-center gap-2 mb-4">
+                      <div className="h-8 w-8 rounded-lg bg-orange-100 flex items-center justify-center">
+                        <LogIn className="h-4 w-4 text-orange-600" />
                       </div>
-
-                      <div className="space-y-2">
-                        <Label className="flex items-center justify-between">
-                          OpenAI API Key
-                        </Label>
-                        <div className="flex gap-2">
-                          <Input
-                            type={showSecrets ? "text" : "password"}
-                            placeholder="sk-..."
-                            value={localSettings['openai_api_key'] ?? getSetting('openai_api_key')}
-                            onChange={(e) => handleSettingChange('openai_api_key', e.target.value)}
-                          />
-                          <Button size="sm" onClick={() => handleSaveSetting('openai_api_key', 'ai', true)}>
-                            <Save className="h-4 w-4" />
-                          </Button>
-                        </div>
+                      <div>
+                        <h3 className="font-bold text-sm">Google Authentication (SSO)</h3>
+                        <p className="text-[10px] text-slate-500">Configure OAuth 2.0 for one-click user sign-in.</p>
                       </div>
                     </div>
-
-                    <div className="space-y-4">
-                      <div className="space-y-2">
-                        <Label>Google Maps API Key</Label>
-                        <div className="flex gap-2">
-                          <Input
-                            type={showSecrets ? "text" : "password"}
-                            placeholder="AIza..."
-                            value={localSettings['google_maps_api_key'] ?? getSetting('google_maps_api_key')}
-                            onChange={(e) => handleSettingChange('google_maps_api_key', e.target.value)}
-                          />
-                          <Button size="sm" onClick={() => handleSaveSetting('google_maps_api_key', 'maps', true)}>
-                            <Save className="h-4 w-4" />
-                          </Button>
-                        </div>
-                      </div>
-
-                      <div className="space-y-2">
-                        <Label>reCAPTCHA Site Key</Label>
-                        <div className="flex gap-2">
-                          <Input
-                            placeholder="Site Key"
-                            value={localSettings['captcha_site_key'] ?? getSetting('captcha_site_key')}
-                            onChange={(e) => handleSettingChange('captcha_site_key', e.target.value)}
-                          />
-                          <Button size="sm" onClick={() => handleSaveSetting('captcha_site_key', 'security')}>
-                            <Save className="h-4 w-4" />
-                          </Button>
-                        </div>
-                      </div>
-
-                      <div className="space-y-2">
-                        <Label>reCAPTCHA Secret Key</Label>
-                        <div className="flex gap-2">
-                          <Input
-                            type={showSecrets ? "text" : "password"}
-                            placeholder="Secret Key"
-                            value={localSettings['captcha_secret_key'] ?? getSetting('captcha_secret_key')}
-                            onChange={(e) => handleSettingChange('captcha_secret_key', e.target.value)}
-                          />
-                          <Button size="sm" onClick={() => handleSaveSetting('captcha_secret_key', 'security', true)}>
-                            <Save className="h-4 w-4" />
-                          </Button>
-                        </div>
-                      </div>
+                    <div className="grid md:grid-cols-2 gap-6 bg-white p-4 rounded-xl border shadow-sm">
+                      <ApiKeyField 
+                        label="Client ID" 
+                        id="google_client_id" 
+                        category="auth" 
+                        isSecret={false}
+                        placeholder="xxx.apps.googleusercontent.com" 
+                      />
+                      <ApiKeyField 
+                        label="Client Secret" 
+                        id="google_client_secret" 
+                        category="auth" 
+                        placeholder="GOCSPX-..." 
+                      />
                     </div>
                   </div>
-                </div>
-              </CardContent>
-            </Card>
+                </CardContent>
+              </Card>
+            </div>
           </TabsContent>
 
           {/* Plans Tab */}
+          <TabsContent value="email-templates">
+            <div className="space-y-6">
+              <Card className="border-none shadow-sm overflow-hidden">
+                <CardHeader className="bg-white border-b">
+                  <div className="flex items-center justify-between">
+                    <div>
+                      <CardTitle className="text-lg">Rich Email Templates</CardTitle>
+                      <CardDescription>Manage beautiful, formatted email communications for your users.</CardDescription>
+                    </div>
+                    <Badge variant="outline" className="bg-blue-50 text-blue-700 border-blue-200">
+                      <Mail className="h-3 w-3 mr-1" /> Rich Formatting
+                    </Badge>
+                  </div>
+                </CardHeader>
+                <CardContent className="p-6 space-y-6 bg-slate-50/30">
+                  {/* Variable Guide */}
+                  <div className="p-4 bg-white rounded-xl border shadow-sm space-y-4">
+                    <div className="flex items-center gap-2 mb-2">
+                      <div className="h-8 w-8 rounded-lg bg-blue-100 flex items-center justify-center">
+                        <HelpCircle className="h-4 w-4 text-blue-600" />
+                      </div>
+                      <h3 className="font-bold text-sm">Template Variable Guide</h3>
+                    </div>
+                    <div className="grid grid-cols-2 md:grid-cols-4 gap-3 text-xs">
+                      <div className="bg-slate-50 p-2.5 rounded-lg border border-slate-100">
+                        <code className="text-blue-600 font-bold">{"{{userName}}"}</code>
+                        <p className="text-slate-500 mt-1">Recipient's full name</p>
+                      </div>
+                      <div className="bg-slate-50 p-2.5 rounded-lg border border-slate-100">
+                        <code className="text-blue-600 font-bold">{"{{code}}"}</code>
+                        <p className="text-slate-500 mt-1">Verification code</p>
+                      </div>
+                      <div className="bg-slate-50 p-2.5 rounded-lg border border-slate-100">
+                        <code className="text-blue-600 font-bold">{"{{expiry}}"}</code>
+                        <p className="text-slate-500 mt-1">Code expiry time</p>
+                      </div>
+                      <div className="bg-slate-50 p-2.5 rounded-lg border border-slate-100">
+                        <code className="text-blue-600 font-bold">{"{{appName}}"}</code>
+                        <p className="text-slate-500 mt-1">SabiRight</p>
+                      </div>
+                    </div>
+                    
+                    <div className="p-3 bg-amber-50 border border-amber-100 rounded-lg">
+                      <div className="flex items-start gap-2">
+                        <AlertTriangle className="h-4 w-4 text-amber-600 mt-0.5" />
+                        <div>
+                          <p className="text-xs font-bold text-amber-800">Email Identity Tip</p>
+                          <p className="text-[10px] text-amber-700 leading-relaxed mt-1">
+                            To show your logo in the recipient's inbox (as a profile image), associate your "From Email" address with a <a href="https://gravatar.com" target="_blank" rel="noreferrer" className="underline font-bold">Gravatar</a> account or a Google Workspace profile. We automatically include your favicon in the email body.
+                          </p>
+                        </div>
+                      </div>
+                    </div>
+                  </div>
+
+                  {/* Template Editor */}
+                  <div className="p-6 bg-white rounded-xl border shadow-sm space-y-6">
+                    <div className="flex items-center gap-2 mb-2">
+                      <div className="h-8 w-8 rounded-lg bg-green-100 flex items-center justify-center">
+                        <Plus className="h-4 w-4 text-green-600" />
+                      </div>
+                      <h3 className="font-bold text-sm">Create New Email Template</h3>
+                    </div>
+                    
+                    <div className="grid md:grid-cols-2 gap-6">
+                      <div className="space-y-2">
+                        <Label className="text-xs font-semibold">Template Name</Label>
+                        <Input 
+                          className="h-9"
+                          placeholder="e.g., Welcome Email"
+                          value={newTemplate.name}
+                          onChange={(e) => setNewTemplate({ ...newTemplate, name: e.target.value })}
+                        />
+                      </div>
+                      <div className="space-y-2">
+                        <Label className="text-xs font-semibold">Subject Line</Label>
+                        <Input 
+                          className="h-9"
+                          placeholder="e.g., Welcome to SabiRight!"
+                          value={newTemplate.subject}
+                          onChange={(e) => setNewTemplate({ ...newTemplate, subject: e.target.value })}
+                        />
+                      </div>
+                    </div>
+
+                    <div className="space-y-2">
+                      <Label className="text-xs font-semibold">Email Body (Rich Text Editor)</Label>
+                      <div className="bg-white rounded-xl border overflow-hidden shadow-inner">
+                        <ReactQuill 
+                          theme="snow"
+                          value={newTemplate.bodyTemplate}
+                          onChange={(content) => setNewTemplate({ ...newTemplate, bodyTemplate: content })}
+                          modules={{
+                            toolbar: [
+                              [{ 'header': [1, 2, 3, false] }],
+                              ['bold', 'italic', 'underline', 'strike'],
+                              [{ 'color': [] }, { 'background': [] }],
+                              [{ 'list': 'ordered'}, { 'list': 'bullet' }],
+                              ['link', 'image'],
+                              ['clean']
+                            ],
+                          }}
+                          className="h-80 mb-12"
+                        />
+                      </div>
+                    </div>
+
+                    <div className="flex justify-end">
+                      <Button 
+                        size="sm"
+                        onClick={() => {
+                          createTemplate.mutate({
+                            ...newTemplate,
+                            channels: ['email'],
+                            type: 'transactional'
+                          });
+                        }}
+                        disabled={createTemplate.isPending || !newTemplate.name || !newTemplate.subject}
+                        className="bg-blue-600 hover:bg-blue-700 h-9"
+                      >
+                        {createTemplate.isPending ? "Creating..." : "Create Email Template"}
+                      </Button>
+                    </div>
+                  </div>
+
+                  {/* Existing Email Templates */}
+                  <div className="space-y-4 pt-6 border-t">
+                    <h3 className="text-xs font-bold uppercase tracking-wider text-slate-400 px-1">Manage Templates</h3>
+                    <div className="grid gap-4">
+                      {notificationTemplates.filter((t: any) => t.channels?.includes('email')).map((template: any) => (
+                        <div key={template.id} className="p-5 bg-white rounded-xl border shadow-sm transition-all hover:shadow-md">
+                          {editingTemplate?.id === template.id ? (
+                            <div className="space-y-5">
+                              <div className="grid md:grid-cols-2 gap-4">
+                                <div className="space-y-1.5">
+                                  <Label className="text-[10px] font-bold uppercase text-slate-400">Subject</Label>
+                                  <Input 
+                                    className="h-9"
+                                    value={editingTemplate.subject}
+                                    onChange={(e) => setEditingTemplate({ ...editingTemplate, subject: e.target.value })}
+                                  />
+                                </div>
+                                <div className="space-y-1.5">
+                                  <Label className="text-[10px] font-bold uppercase text-slate-400">Template Name</Label>
+                                  <Input 
+                                    className="h-9"
+                                    value={editingTemplate.name}
+                                    onChange={(e) => setEditingTemplate({ ...editingTemplate, name: e.target.value })}
+                                  />
+                                </div>
+                              </div>
+                              <div className="space-y-1.5">
+                                <Label className="text-[10px] font-bold uppercase text-slate-400">Body Content</Label>
+                                <div className="bg-white rounded-xl border overflow-hidden">
+                                  <ReactQuill 
+                                    theme="snow"
+                                    value={editingTemplate.bodyTemplate}
+                                    onChange={(content) => setEditingTemplate({ ...editingTemplate, bodyTemplate: content })}
+                                    className="h-64 mb-12"
+                                  />
+                                </div>
+                              </div>
+                              <div className="flex gap-2 justify-end">
+                                <Button size="sm" variant="outline" onClick={() => setEditingTemplate(null)} className="h-8">Cancel</Button>
+                                <Button size="sm" onClick={() => updateTemplate.mutate({ templateId: template.id, updates: editingTemplate })} className="h-8 bg-blue-600">Save Changes</Button>
+                              </div>
+                            </div>
+                          ) : (
+                            <div className="flex flex-col md:flex-row justify-between items-start md:items-center gap-4">
+                              <div className="flex-1">
+                                <div className="flex items-center gap-2 mb-1">
+                                  <h5 className="font-bold text-slate-900">{template.name}</h5>
+                                  <Badge variant="secondary" className="text-[10px] py-0 h-4 bg-slate-100 text-slate-600">{template.type}</Badge>
+                                </div>
+                                <p className="text-sm text-slate-500 font-medium">{template.subject}</p>
+                                <div className="mt-2 text-xs text-slate-400 line-clamp-1 italic" dangerouslySetInnerHTML={{ __html: template.bodyTemplate.substring(0, 100) + '...' }} />
+                              </div>
+                              <div className="flex gap-2 shrink-0">
+                                <Button size="sm" variant="outline" onClick={() => setEditingTemplate(template)} className="h-8 w-8 p-0">
+                                  <Edit className="h-3.5 w-3.5" />
+                                </Button>
+                                <Button size="sm" variant="outline" onClick={() => deleteTemplate.mutate(template.id)} className="h-8 w-8 p-0 text-red-500 hover:text-red-600 hover:bg-red-50">
+                                  <Trash2 className="h-3.5 w-3.5" />
+                                </Button>
+                              </div>
+                            </div>
+                          )}
+                        </div>
+                      ))}
+                      {notificationTemplates.filter((t: any) => t.channels?.includes('email')).length === 0 && (
+                        <div className="text-center py-12 bg-white rounded-xl border border-dashed">
+                          <Mail className="h-8 w-8 text-slate-300 mx-auto mb-2" />
+                          <p className="text-slate-400 text-sm">No email templates found.</p>
+                        </div>
+                      )}
+                    </div>
+                  </div>
+                </CardContent>
+              </Card>
+            </div>
+          </TabsContent>
+
           <TabsContent value="plans">
             <div className="space-y-6">
               {/* Create New Plan */}
@@ -2394,12 +4177,21 @@ export default function AdminDashboard() {
                         />
                       </div>
                       <div>
-                        <Label>Referral Signup</Label>
+                        <Label>Referral Signup Reward (to new user)</Label>
                         <Input
                           type="number"
                           value={localSettings['credit_reward_referral'] ?? getSetting('credit_reward_referral') ?? '10'}
                           onChange={(e) => handleSettingChange('credit_reward_referral', e.target.value)}
                           placeholder="10"
+                        />
+                      </div>
+                      <div>
+                        <Label>Referrer Bonus (to referrer)</Label>
+                        <Input
+                          type="number"
+                          value={localSettings['referral_reward_credits'] ?? getSetting('referral_reward_credits') ?? '50'}
+                          onChange={(e) => handleSettingChange('referral_reward_credits', e.target.value)}
+                          placeholder="50"
                         />
                       </div>
                       <div>
@@ -2421,11 +4213,11 @@ export default function AdminDashboard() {
                         />
                       </div>
                       <div>
-                        <Label>Verify KYC</Label>
+                        <Label>Verify Email</Label>
                         <Input
                           type="number"
-                          value={localSettings['credit_reward_kyc_verification'] ?? getSetting('credit_reward_kyc_verification') ?? '20'}
-                          onChange={(e) => handleSettingChange('credit_reward_kyc_verification', e.target.value)}
+                          value={localSettings['credit_reward_email_verification'] ?? getSetting('credit_reward_email_verification') ?? '20'}
+                          onChange={(e) => handleSettingChange('credit_reward_email_verification', e.target.value)}
                           placeholder="20"
                         />
                       </div>
@@ -2434,9 +4226,10 @@ export default function AdminDashboard() {
                       handleSaveSetting('credit_reward_post_like', 'credit_rewards', false);
                       handleSaveSetting('credit_reward_post_comment', 'credit_rewards', false);
                       handleSaveSetting('credit_reward_referral', 'credit_rewards', false);
+                      handleSaveSetting('referral_reward_credits', 'credit_rewards', false);
                       handleSaveSetting('credit_reward_daily_login', 'credit_rewards', false);
                       handleSaveSetting('credit_reward_complete_profile', 'credit_rewards', false);
-                      handleSaveSetting('credit_reward_kyc_verification', 'credit_rewards', false);
+                      handleSaveSetting('credit_reward_email_verification', 'credit_rewards', false);
                     }}>
                       <Save className="h-4 w-4 mr-2" />
                       Save Credit Rewards
@@ -2748,7 +4541,7 @@ export default function AdminDashboard() {
                       <p className="text-xs text-slate-500 mt-2">
                         💡 <strong>Webhook URL:</strong> Configure this in your Flutterwave dashboard:<br/>
                         <code className="bg-slate-100 px-2 py-1 rounded text-xs">
-                          https://your-domain.com/api/payments/flutterwave/webhook
+                          {window.location.origin}/api/payments/flutterwave/webhook
                         </code>
                       </p>
                     </div>
@@ -2826,6 +4619,12 @@ export default function AdminDashboard() {
                           queryClient.invalidateQueries({ queryKey: ['admin-payment-methods'] });
                         }}
                       />
+                      <p className="text-xs text-slate-500 mt-2">
+                        💡 <strong>Webhook URL:</strong> Configure this in your Paystack dashboard:<br/>
+                        <code className="bg-slate-100 px-2 py-1 rounded text-xs">
+                          {window.location.origin}/api/payments/paystack/webhook
+                        </code>
+                      </p>
                     </div>
                   </div>
 
@@ -3001,11 +4800,11 @@ export default function AdminDashboard() {
                           </div>
                           <div className="flex items-center gap-2 flex-wrap">
                             <Badge className={`text-[10px] md:text-xs ${
-                              user.kycStatus === 'verified' ? 'bg-green-100 text-green-800' : 
-                              user.kycStatus === 'rejected' ? 'bg-red-100 text-red-800' :
+                              user.emailVerificationStatus === 'verified' ? 'bg-green-100 text-green-800' : 
+                              user.emailVerificationStatus === 'rejected' ? 'bg-red-100 text-red-800' :
                               'bg-yellow-100 text-yellow-800'
                             }`}>
-                              KYC: {user.kycStatus || 'pending'}
+                              Email: {user.emailVerificationStatus || 'pending'}
                             </Badge>
                             {user.isVendor && (
                               <Badge className="bg-purple-100 text-purple-800 text-[10px] md:text-xs">Vendor</Badge>
@@ -3064,22 +4863,22 @@ export default function AdminDashboard() {
 
                           <div className="h-4 w-px bg-slate-200 mx-1 hidden sm:block" />
                           
-                          {/* KYC Actions */}
-                          {user.kycStatus === 'pending' && (
+                          {/* Email Verification Actions */}
+                          {user.emailVerificationStatus === 'pending' && (
                             <>
                               <Button 
                                 size="sm" 
                                 className="bg-green-600 hover:bg-green-700"
-                                onClick={() => approveKYC.mutate(user.userId)}
+                                onClick={() => approveEmail.mutate(user.userId)}
                               >
-                                <CheckCircle2 className="h-4 w-4 mr-1" /> Verify KYC
+                                <CheckCircle2 className="h-4 w-4 mr-1" /> Verify Email
                               </Button>
                               <Button 
                                 size="sm" 
                                 variant="destructive"
-                                onClick={() => rejectKYC.mutate(user.userId)}
+                                onClick={() => rejectEmail.mutate(user.userId)}
                               >
-                                <XCircle className="h-4 w-4 mr-1" /> Reject KYC
+                                <XCircle className="h-4 w-4 mr-1" /> Reject Email
                               </Button>
                             </>
                           )}
@@ -3333,7 +5132,7 @@ export default function AdminDashboard() {
                               <p className="font-bold text-sm md:text-base">{app.businessName}</p>
                               <p className="text-xs md:text-sm text-slate-500">{app.serviceType}</p>
                               <p className="text-[10px] md:text-xs text-slate-400">
-                                Applied: {new Date(app.createdAt).toLocaleDateString()}
+                                Applied: {formatFirestoreDate(app.createdAt).toLocaleDateString()}
                               </p>
                             </div>
                             <div className="flex items-center gap-2 flex-wrap">
@@ -3495,7 +5294,15 @@ export default function AdminDashboard() {
                     <Button
                       className="mt-4"
                       data-testid="button-create-template"
-                      onClick={() => createTemplate.mutate(newTemplate)}
+                      onClick={() => {
+                        const channelsArray = Object.entries(newTemplate.channels)
+                          .filter(([_, enabled]) => enabled)
+                          .map(([channel]) => channel);
+                        createTemplate.mutate({
+                          ...newTemplate,
+                          channels: channelsArray
+                        });
+                      }}
                       disabled={!newTemplate.name || !newTemplate.subject || !newTemplate.bodyTemplate}
                     >
                       <Plus className="h-4 w-4 mr-2" />
@@ -3583,10 +5390,18 @@ export default function AdminDashboard() {
                                 <div className="flex gap-2">
                                   <Button
                                     size="sm"
-                                    onClick={() => updateTemplate.mutate({
-                                      templateId: template.id,
-                                      updates: editingTemplate
-                                    })}
+                                    onClick={() => {
+                                      const channelsArray = Object.entries(editingTemplate.channels || {})
+                                        .filter(([_, enabled]) => enabled)
+                                        .map(([channel]) => channel);
+                                      updateTemplate.mutate({
+                                        templateId: template.id,
+                                        updates: {
+                                          ...editingTemplate,
+                                          channels: channelsArray
+                                        }
+                                      });
+                                    }}
                                   >
                                     Save
                                   </Button>
@@ -3605,9 +5420,19 @@ export default function AdminDashboard() {
                                   <p className="text-sm text-slate-600 mb-1">{template.subject}</p>
                                   <p className="text-xs text-slate-400 line-clamp-2">{template.bodyTemplate}</p>
                                   <div className="flex gap-2 mt-2">
-                                    {template.channels?.email && <Badge variant="secondary" className="text-[10px]"><Mail className="h-3 w-3 mr-1" />Email</Badge>}
-                                    {template.channels?.push && <Badge variant="secondary" className="text-[10px]"><Bell className="h-3 w-3 mr-1" />Push</Badge>}
-                                    {template.channels?.in_app && <Badge variant="secondary" className="text-[10px]"><Bell className="h-3 w-3 mr-1" />In-App</Badge>}
+                                    {Array.isArray(template.channels) ? (
+                                      <>
+                                        {template.channels.includes('email') && <Badge variant="secondary" className="text-[10px]"><Mail className="h-3 w-3 mr-1" />Email</Badge>}
+                                        {template.channels.includes('push') && <Badge variant="secondary" className="text-[10px]"><Bell className="h-3 w-3 mr-1" />Push</Badge>}
+                                        {template.channels.includes('in_app') && <Badge variant="secondary" className="text-[10px]"><Bell className="h-3 w-3 mr-1" />In-App</Badge>}
+                                      </>
+                                    ) : (
+                                      <>
+                                        {template.channels?.email && <Badge variant="secondary" className="text-[10px]"><Mail className="h-3 w-3 mr-1" />Email</Badge>}
+                                        {template.channels?.push && <Badge variant="secondary" className="text-[10px]"><Bell className="h-3 w-3 mr-1" />Push</Badge>}
+                                        {template.channels?.in_app && <Badge variant="secondary" className="text-[10px]"><Bell className="h-3 w-3 mr-1" />In-App</Badge>}
+                                      </>
+                                    )}
                                   </div>
                                 </div>
                                 <div className="flex gap-2">
@@ -3615,7 +5440,20 @@ export default function AdminDashboard() {
                                     size="sm"
                                     variant="outline"
                                     data-testid={`button-edit-template-${template.id}`}
-                                    onClick={() => setEditingTemplate(template)}
+                                    onClick={() => {
+                                      const channelsObj = Array.isArray(template.channels) 
+                                        ? {
+                                            email: template.channels.includes('email'),
+                                            push: template.channels.includes('push'),
+                                            in_app: template.channels.includes('in_app')
+                                          }
+                                        : (template.channels || { email: true, push: false, in_app: true });
+                                      
+                                      setEditingTemplate({
+                                        ...template,
+                                        channels: channelsObj
+                                      });
+                                    }}
                                   >
                                     <Edit className="h-4 w-4" />
                                   </Button>
@@ -3725,6 +5563,16 @@ export default function AdminDashboard() {
                         </SelectContent>
                       </Select>
                     </div>
+                    <div className="flex items-center justify-between p-3 border rounded-lg bg-slate-50 md:col-span-2">
+                      <div className="space-y-0.5">
+                        <Label>Service Active</Label>
+                        <p className="text-xs text-slate-500">Enable or disable all email notifications</p>
+                      </div>
+                      <Switch 
+                        checked={smtpSettings.isActive}
+                        onCheckedChange={(checked) => setSmtpSettings({ ...smtpSettings, isActive: checked })}
+                      />
+                    </div>
                   </div>
                   <div className="flex gap-3 mt-6">
                     <Button
@@ -3748,14 +5596,190 @@ export default function AdminDashboard() {
                   </div>
                 </CardContent>
               </Card>
+
+              {/* Push Notification VAPID Settings */}
+              <Card className="border-none shadow-sm overflow-hidden">
+                <CardHeader className="bg-white border-b">
+                  <div className="flex items-center justify-between">
+                    <CardTitle className="flex items-center gap-2 text-lg">
+                      <Smartphone className="h-5 w-5 text-purple-500" />
+                      Web-Push VAPID Configuration
+                    </CardTitle>
+                    <Button 
+                      variant="outline" 
+                      size="sm"
+                      onClick={() => generateVapidKeys.mutate()}
+                      disabled={generateVapidKeys.isPending}
+                    >
+                      {generateVapidKeys.isPending ? <RefreshCcw className="h-4 w-4 mr-2 animate-spin" /> : <Key className="h-4 w-4 mr-2" />}
+                      Generate Keys
+                    </Button>
+                  </div>
+                </CardHeader>
+                <CardContent className="pt-6">
+                  <div className="grid gap-4">
+                    <div className="space-y-2">
+                      <Label htmlFor="push-subject">Subject (mailto: or URL)</Label>
+                      <Input
+                        id="push-subject"
+                        placeholder="mailto:admin@example.com"
+                        value={pushSettings.subject}
+                        onChange={(e) => setPushSettings({ ...pushSettings, subject: e.target.value })}
+                      />
+                      <p className="text-xs text-slate-500">This must be either a mailto: URI or a website URL.</p>
+                    </div>
+                    <div className="space-y-2">
+                      <Label htmlFor="push-public-key">VAPID Public Key</Label>
+                      <Input
+                        id="push-public-key"
+                        placeholder="Public Key"
+                        value={pushSettings.publicKey}
+                        onChange={(e) => setPushSettings({ ...pushSettings, publicKey: e.target.value })}
+                      />
+                    </div>
+                    <div className="space-y-2">
+                      <Label htmlFor="push-private-key">VAPID Private Key</Label>
+                      <Input
+                        id="push-private-key"
+                        type="password"
+                        placeholder="••••••••"
+                        value={pushSettings.privateKey}
+                        onChange={(e) => setPushSettings({ ...pushSettings, privateKey: e.target.value })}
+                      />
+                    </div>
+                    <div className="flex items-center justify-between p-3 border rounded-lg bg-slate-50">
+                      <div className="space-y-0.5">
+                        <Label>Service Active</Label>
+                        <p className="text-xs text-slate-500">Enable or disable web-push notifications</p>
+                      </div>
+                      <Switch 
+                        checked={pushSettings.isActive}
+                        onCheckedChange={(checked) => setPushSettings({ ...pushSettings, isActive: checked })}
+                      />
+                    </div>
+                  </div>
+                  <div className="flex gap-3 mt-6">
+                    <Button
+                      onClick={() => savePushSettings.mutate(pushSettings)}
+                      disabled={savePushSettings.isPending}
+                    >
+                      <Save className="h-4 w-4 mr-2" />
+                      {savePushSettings.isPending ? "Saving..." : "Save Push Settings"}
+                    </Button>
+                    <Button
+                      variant="outline"
+                      onClick={() => {
+                        const userId = prompt("Enter User ID to send test push to:");
+                        if (userId) testPushNotification.mutate(userId);
+                      }}
+                      disabled={testPushNotification.isPending}
+                    >
+                      {testPushNotification.isPending ? "Sending..." : "Send Test Push"}
+                    </Button>
+                  </div>
+                </CardContent>
+              </Card>
             </div>
           </TabsContent>
         <TabsContent value="analytics" className="space-y-6">
-          <div>
-            <h3 className="text-lg font-bold">Analytics & Insights</h3>
-            <p className="text-sm text-slate-500">Comprehensive business analytics and data export</p>
+          <div className="flex flex-col md:flex-row md:items-center justify-between gap-4">
+            <div>
+              <h3 className="text-lg font-bold">Analytics & Insights</h3>
+              <p className="text-sm text-slate-500">Comprehensive business analytics and data export</p>
+            </div>
+            <div className="flex items-center gap-2">
+              <Select value={timeRange} onValueChange={setTimeRange}>
+                <SelectTrigger className="w-[180px]">
+                  <Filter className="h-4 w-4 mr-2" />
+                  <SelectValue placeholder="Time Range" />
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="all">All Time</SelectItem>
+                  <SelectItem value="24h">Last 24 Hours</SelectItem>
+                  <SelectItem value="1w">Last 1 Week</SelectItem>
+                  <SelectItem value="1m">Last 1 Month</SelectItem>
+                  <SelectItem value="3m">Last 3 Months</SelectItem>
+                  <SelectItem value="6m">Last 6 Months</SelectItem>
+                  <SelectItem value="1y">Last 1 Year</SelectItem>
+                  <SelectItem value="custom">Custom Range</SelectItem>
+                </SelectContent>
+              </Select>
+            </div>
           </div>
 
+          {timeRange === 'custom' && (
+            <Card className="p-4">
+              <div className="flex flex-wrap gap-4 items-end">
+                <div className="space-y-2">
+                  <Label>Start Date</Label>
+                  <Input 
+                    type="date" 
+                    value={customStartDate} 
+                    onChange={(e) => setCustomStartDate(e.target.value)} 
+                  />
+                </div>
+                <div className="space-y-2">
+                  <Label>End Date</Label>
+                  <Input 
+                    type="date" 
+                    value={customEndDate} 
+                    onChange={(e) => setCustomEndDate(e.target.value)} 
+                  />
+                </div>
+                <Button variant="outline" onClick={() => { setCustomStartDate(''); setCustomEndDate(''); }}>
+                  Clear
+                </Button>
+              </div>
+            </Card>
+          )}
+
+          {(() => {
+            const filteredPayments = filterDataByTimeRange(payments);
+            const filteredUsers = filterDataByTimeRange(users);
+            
+            // Calculate Demographics
+            const demographics = (() => {
+              const genderCounts: Record<string, number> = { Male: 0, Female: 0, Other: 0, Unknown: 0 };
+              const ageGroups: Record<string, number> = { "Under 18": 0, "18-24": 0, "25-34": 0, "35-44": 0, "45-54": 0, "55+": 0, "Unknown": 0 };
+              const stateCounts: Record<string, number> = {};
+
+              filteredUsers.forEach((u: any) => {
+                // Gender
+                const gender = u.gender || "Unknown";
+                if (genderCounts[gender] !== undefined) genderCounts[gender]++;
+                else genderCounts["Unknown"]++;
+
+                // Age from DOB
+                if (u.dob) {
+                  const birthDate = new Date(u.dob);
+                  const age = new Date().getFullYear() - birthDate.getFullYear();
+                  if (age < 18) ageGroups["Under 18"]++;
+                  else if (age <= 24) ageGroups["18-24"]++;
+                  else if (age <= 34) ageGroups["25-34"]++;
+                  else if (age <= 44) ageGroups["35-44"]++;
+                  else if (age <= 54) ageGroups["45-54"]++;
+                  else ageGroups["55+"]++;
+                } else {
+                  ageGroups["Unknown"]++;
+                }
+
+                // State
+                const state = u.state || "Unknown";
+                stateCounts[state] = (stateCounts[state] || 0) + 1;
+              });
+
+              return {
+                gender: Object.entries(genderCounts).map(([name, value]) => ({ name, value })).filter(d => d.value > 0),
+                age: Object.entries(ageGroups).map(([name, value]) => ({ name, value })).filter(d => d.value > 0),
+                states: Object.entries(stateCounts)
+                  .map(([name, value]) => ({ name, value }))
+                  .sort((a, b) => b.value - a.value)
+                  .slice(0, 10) // Top 10 states
+              };
+            })();
+
+            return (
+              <>
           {/* Export Buttons */}
           <div className="flex gap-2 flex-wrap">
             <Button
@@ -3763,14 +5787,14 @@ export default function AdminDashboard() {
                 // Export to CSV
                 const analyticsData = {
                   revenue: {
-                    total: payments?.filter((p: any) => p.status === 'completed').reduce((sum: number, p: any) => sum + p.amount, 0) || 0,
+                    total: filteredPayments?.filter((p: any) => p.status === 'completed').reduce((sum: number, p: any) => sum + p.amount, 0) || 0,
                     byMethod: {}
                   },
                   users: {
-                    total: users?.length || 0,
-                    subscribed: users?.filter((u: any) => u.subscriptionId).length || 0
+                    total: filteredUsers?.length || 0,
+                    subscribed: filteredUsers?.filter((u: any) => u.subscriptionId).length || 0
                   },
-                  transactions: payments?.length || 0
+                  transactions: filteredPayments?.length || 0
                 };
 
                 const csvContent = [
@@ -3782,8 +5806,8 @@ export default function AdminDashboard() {
                   [''],
                   ['Payment Details'],
                   ['Date', 'User', 'Amount', 'Type', 'Status', 'Method'],
-                  ...payments?.map((p: any) => [
-                    new Date(p.createdAt).toLocaleDateString(),
+                  ...filteredPayments?.map((p: any) => [
+                    formatFirestoreDate(p.createdAt).toLocaleDateString(),
                     p.userId,
                     p.amount,
                     p.type,
@@ -3814,23 +5838,24 @@ export default function AdminDashboard() {
                   
                   // Summary sheet
                   const summaryData = [
-                    ['DigiZen-AI Analytics Report'],
+                    ['SabiRight Analytics Report'],
                     ['Generated:', new Date().toLocaleString()],
+                    ['Time Range:', timeRange],
                     [''],
                     ['Key Metrics'],
-                    ['Total Revenue', payments?.filter((p: any) => p.status === 'completed').reduce((sum: number, p: any) => sum + p.amount, 0) || 0],
-                    ['Total Users', users?.length || 0],
-                    ['Subscribed Users', users?.filter((u: any) => u.subscriptionId).length || 0],
-                    ['Total Transactions', payments?.length || 0],
-                    ['Completed Payments', payments?.filter((p: any) => p.status === 'completed').length || 0],
-                    ['Pending Payments', payments?.filter((p: any) => p.status === 'pending').length || 0],
+                    ['Total Revenue', filteredPayments?.filter((p: any) => p.status === 'completed').reduce((sum: number, p: any) => sum + p.amount, 0) || 0],
+                    ['Total Users', filteredUsers?.length || 0],
+                    ['Subscribed Users', filteredUsers?.filter((u: any) => u.subscriptionId).length || 0],
+                    ['Total Transactions', filteredPayments?.length || 0],
+                    ['Completed Payments', filteredPayments?.filter((p: any) => p.status === 'completed').length || 0],
+                    ['Pending Payments', filteredPayments?.filter((p: any) => p.status === 'pending').length || 0],
                   ];
 
                   // Payments sheet
                   const paymentsData = [
                     ['Date', 'User ID', 'Amount', 'Currency', 'Type', 'Status', 'Method', 'Reference'],
-                    ...payments?.map((p: any) => [
-                      new Date(p.createdAt).toLocaleString(),
+                    ...filteredPayments?.map((p: any) => [
+                      formatFirestoreDate(p.createdAt).toLocaleString(),
                       p.userId,
                       p.amount,
                       p.currency || 'NGN',
@@ -3844,12 +5869,12 @@ export default function AdminDashboard() {
                   // Users sheet
                   const usersData = [
                     ['Email', 'Display Name', 'Subscription', 'Credits', 'Created At'],
-                    ...users?.map((u: any) => [
+                    ...filteredUsers?.map((u: any) => [
                       u.email,
                       u.displayName || 'N/A',
                       u.subscriptionId ? 'Yes' : 'No',
                       u.credits || 0,
-                      new Date(u.createdAt).toLocaleString()
+                      formatFirestoreDate(u.createdAt).toLocaleString()
                     ]) || []
                   ];
 
@@ -3874,6 +5899,7 @@ export default function AdminDashboard() {
               Export Excel
             </Button>
 
+
             <Button
               onClick={async () => {
                 // Export to PDF
@@ -3885,7 +5911,7 @@ export default function AdminDashboard() {
                   
                   // Title
                   doc.setFontSize(20);
-                  doc.text('DigiZen-AI Analytics Report', 14, 20);
+                  doc.text('SabiRight Analytics Report', 14, 20);
                   doc.setFontSize(10);
                   doc.text(`Generated: ${new Date().toLocaleString()}`, 14, 28);
 
@@ -3894,12 +5920,12 @@ export default function AdminDashboard() {
                   doc.text('Key Metrics', 14, 40);
                   
                   const metrics = [
-                    ['Total Revenue', `NGN ${payments?.filter((p: any) => p.status === 'completed').reduce((sum: number, p: any) => sum + p.amount, 0) || 0}`],
-                    ['Total Users', users?.length || 0],
-                    ['Subscribed Users', users?.filter((u: any) => u.subscriptionId).length || 0],
-                    ['Total Transactions', payments?.length || 0],
-                    ['Completed Payments', payments?.filter((p: any) => p.status === 'completed').length || 0],
-                    ['Pending Payments', payments?.filter((p: any) => p.status === 'pending').length || 0],
+                    ['Total Revenue', `NGN ${filteredPayments?.filter((p: any) => p.status === 'completed').reduce((sum: number, p: any) => sum + p.amount, 0) || 0}`],
+                    ['Total Users', filteredUsers?.length || 0],
+                    ['Subscribed Users', filteredUsers?.filter((u: any) => u.subscriptionId).length || 0],
+                    ['Total Transactions', filteredPayments?.length || 0],
+                    ['Completed Payments', filteredPayments?.filter((p: any) => p.status === 'completed').length || 0],
+                    ['Pending Payments', filteredPayments?.filter((p: any) => p.status === 'pending').length || 0],
                   ];
 
                   (doc as any).autoTable({
@@ -3913,8 +5939,8 @@ export default function AdminDashboard() {
                   doc.setFontSize(14);
                   doc.text('Recent Payments', 14, 20);
 
-                  const paymentRows = payments?.slice(0, 50).map((p: any) => [
-                    new Date(p.createdAt).toLocaleDateString(),
+                  const paymentRows = filteredPayments?.slice(0, 100).map((p: any) => [
+                    formatFirestoreDate(p.createdAt).toLocaleDateString(),
                     p.userId.substring(0, 8),
                     `${p.amount} ${p.currency || 'NGN'}`,
                     p.type,
@@ -3942,8 +5968,8 @@ export default function AdminDashboard() {
             <Button
               onClick={() => {
                 // Export for Power BI (CSV format optimized for Power BI)
-                const powerBIData = payments?.map((p: any) => {
-                  const d = new Date(p.createdAt || new Date());
+                const powerBIData = filteredPayments?.map((p: any) => {
+                  const d = formatFirestoreDate(p.createdAt || new Date());
                   return {
                   Date: d.toISOString(),
                   Year: d.getFullYear(),
@@ -3984,6 +6010,87 @@ export default function AdminDashboard() {
             </Button>
           </div>
 
+          {/* Demographics Charts */}
+          <div className="grid grid-cols-1 md:grid-cols-3 gap-6 mb-8">
+            {/* Gender Distribution */}
+            <Card>
+              <CardHeader>
+                <CardTitle className="text-lg font-bold text-slate-800">Gender Distribution</CardTitle>
+                <p className="text-xs text-slate-500">Breakdown of users by gender</p>
+              </CardHeader>
+              <CardContent>
+                <div className="h-[250px] w-full">
+                  <ResponsiveContainer width="100%" height="100%">
+                    <PieChart>
+                      <Pie
+                        data={demographics.gender}
+                        cx="50%"
+                        cy="50%"
+                        innerRadius={60}
+                        outerRadius={80}
+                        paddingAngle={5}
+                        dataKey="value"
+                      >
+                        {demographics.gender.map((entry, index) => (
+                          <Cell 
+                            key={`cell-${index}`} 
+                            fill={
+                              entry.name === 'Male' ? '#3b82f6' : 
+                              entry.name === 'Female' ? '#ec4899' : 
+                              entry.name === 'Other' ? '#8b5cf6' : '#94a3b8'
+                            } 
+                          />
+                        ))}
+                      </Pie>
+                      <Tooltip />
+                      <Legend verticalAlign="bottom" height={36} />
+                    </PieChart>
+                  </ResponsiveContainer>
+                </div>
+              </CardContent>
+            </Card>
+
+            {/* Age Groups */}
+            <Card>
+              <CardHeader>
+                <CardTitle className="text-lg font-bold text-slate-800">Age Groups</CardTitle>
+                <p className="text-xs text-slate-500">User distribution by age</p>
+              </CardHeader>
+              <CardContent>
+                <div className="h-[250px] w-full">
+                  <ResponsiveContainer width="100%" height="100%">
+                    <BarChart data={demographics.age} layout="vertical" margin={{ left: 20 }}>
+                      <XAxis type="number" hide />
+                      <YAxis dataKey="name" type="category" width={80} tick={{ fontSize: 12 }} />
+                      <Tooltip cursor={{ fill: 'transparent' }} />
+                      <Bar dataKey="value" fill="#8b5cf6" radius={[0, 4, 4, 0]} barSize={20} />
+                    </BarChart>
+                  </ResponsiveContainer>
+                </div>
+              </CardContent>
+            </Card>
+
+            {/* Geographic Distribution */}
+            <Card>
+              <CardHeader>
+                <CardTitle className="text-lg font-bold text-slate-800">Geographic Distribution</CardTitle>
+                <p className="text-xs text-slate-500">Top 10 states by user count</p>
+              </CardHeader>
+              <CardContent>
+                <div className="h-[250px] w-full">
+                  <ResponsiveContainer width="100%" height="100%">
+                    <BarChart data={demographics.states} layout="vertical" margin={{ left: 20 }}>
+                      <XAxis type="number" hide />
+                      <YAxis dataKey="name" type="category" width={80} tick={{ fontSize: 12 }} />
+                      <Tooltip cursor={{ fill: 'transparent' }} />
+                      <Bar dataKey="value" fill="#10b981" radius={[0, 4, 4, 0]} barSize={20} />
+                    </BarChart>
+                  </ResponsiveContainer>
+                </div>
+              </CardContent>
+            </Card>
+          </div>
+
           {/* Analytics Charts */}
           <div className="grid lg:grid-cols-2 gap-6">
             {/* Revenue Area Chart */}
@@ -3991,10 +6098,10 @@ export default function AdminDashboard() {
               <CardHeader className="flex flex-row items-center justify-between pb-2">
                 <div>
                   <CardTitle className="text-lg font-bold">Revenue Trends</CardTitle>
-                  <p className="text-xs text-slate-500">Daily revenue for the last 30 days</p>
+                  <p className="text-xs text-slate-500">Daily revenue for the selected period</p>
                 </div>
                 <Badge variant="outline" className="bg-green-50 text-green-700 border-green-200">
-                  Total: NGN {payments?.filter((p: any) => p.status === 'completed').reduce((sum: number, p: any) => sum + p.amount, 0).toLocaleString()}
+                  Total: NGN {filteredPayments?.filter((p: any) => p.status === 'completed').reduce((sum: number, p: any) => sum + p.amount, 0).toLocaleString()}
                 </Badge>
               </CardHeader>
               <CardContent className="pt-4">
@@ -4002,19 +6109,32 @@ export default function AdminDashboard() {
                   <ResponsiveContainer width="100%" height="100%">
                     <AreaChart
                       data={(() => {
-                        const last30Days = Array.from({ length: 30 }, (_, i) => {
+                        // Dynamic range based on timeRange
+                        let days = 30;
+                        if (timeRange === '24h') days = 1;
+                        if (timeRange === '1w') days = 7;
+                        if (timeRange === '1m') days = 30;
+                        if (timeRange === '3m') days = 90;
+                        if (timeRange === '6m') days = 180;
+                        if (timeRange === '1y') days = 365;
+                        if (timeRange === 'all' && filteredPayments.length > 0) {
+                          const firstDate = formatFirestoreDate(filteredPayments[filteredPayments.length - 1].createdAt);
+                          days = Math.ceil((new Date().getTime() - firstDate.getTime()) / (1000 * 60 * 60 * 24)) + 1;
+                        }
+
+                        const range = Array.from({ length: Math.min(days, 365) }, (_, i) => {
                           const date = new Date();
-                          date.setDate(date.getDate() - (29 - i));
+                          date.setDate(date.getDate() - (Math.min(days, 365) - 1 - i));
                           return date.toISOString().split('T')[0];
                         });
+                        
                         const dailyRevenue: Record<string, number> = {};
-                        payments?.filter((p: any) => p.status === 'completed').forEach((p: any) => {
-                          const date = new Date(p.createdAt).toISOString().split('T')[0];
-                          if (last30Days.includes(date)) {
-                            dailyRevenue[date] = (dailyRevenue[date] || 0) + p.amount;
-                          }
+                        filteredPayments?.filter((p: any) => p.status === 'completed').forEach((p: any) => {
+                          const date = formatFirestoreDate(p.createdAt).toISOString().split('T')[0];
+                          dailyRevenue[date] = (dailyRevenue[date] || 0) + p.amount;
                         });
-                        return last30Days.map(date => ({
+
+                        return range.map(date => ({
                           date: new Date(date).toLocaleDateString('en-US', { month: 'short', day: 'numeric' }),
                           amount: dailyRevenue[date] || 0
                         }));
@@ -4072,7 +6192,7 @@ export default function AdminDashboard() {
                       <Pie
                         data={(() => {
                           const statusCounts: Record<string, number> = {};
-                          payments?.forEach((p: any) => {
+                          filteredPayments?.forEach((p: any) => {
                             statusCounts[p.status] = (statusCounts[p.status] || 0) + 1;
                           });
                           return Object.entries(statusCounts).map(([name, value]) => ({ name, value }));
@@ -4120,9 +6240,9 @@ export default function AdminDashboard() {
                           return d.toLocaleString('en-US', { month: 'short' });
                         });
                         const monthlyUsers: Record<string, number> = {};
-                        users?.forEach((u: any) => {
+                        filteredUsers?.forEach((u: any) => {
                           if (u.createdAt) {
-                            const month = new Date(u.createdAt).toLocaleString('en-US', { month: 'short' });
+                            const month = formatFirestoreDate(u.createdAt).toLocaleString('en-US', { month: 'short' });
                             if (months.includes(month)) {
                               monthlyUsers[month] = (monthlyUsers[month] || 0) + 1;
                             }
@@ -4159,8 +6279,8 @@ export default function AdminDashboard() {
                 {(() => {
                   const userSpending: Record<string, { total: number; email: string }> = {};
                   
-                  payments?.filter((p: any) => p.status === 'completed').forEach((p: any) => {
-                    const user = users?.find((u: any) => u.userId === p.userId);
+                  filteredPayments?.filter((p: any) => p.status === 'completed').forEach((p: any) => {
+                    const user = filteredUsers?.find((u: any) => u.userId === p.userId);
                     if (user) {
                       if (!userSpending[p.userId]) {
                         userSpending[p.userId] = { total: 0, email: user.email };
@@ -4187,95 +6307,10 @@ export default function AdminDashboard() {
               </div>
             </CardContent>
           </Card>
-        </TabsContent>
-        {/* Flagged Posts Tab */}
-        <TabsContent value="surveys">
-          <div className="space-y-6">
-            <div className="grid grid-cols-1 md:grid-cols-4 gap-4">
-              <Card>
-                <CardHeader className="pb-2">
-                  <CardTitle className="text-sm font-medium">Total Responses</CardTitle>
-                </CardHeader>
-                <CardContent>
-                  <div className="text-2xl font-bold">{surveys.length}</div>
-                </CardContent>
-              </Card>
-              <Card>
-                <CardHeader className="pb-2">
-                  <CardTitle className="text-sm font-medium">Avg. Satisfaction</CardTitle>
-                </CardHeader>
-                <CardContent>
-                  <div className="text-2xl font-bold">
-                    {surveys.length > 0 
-                      ? (surveys.reduce((acc: number, s: any) => acc + s.rating, 0) / surveys.length).toFixed(1)
-                      : '0.0'
-                    } / 5
-                  </div>
-                </CardContent>
-              </Card>
-              {Object.entries(surveyStats).map(([feature, stats]: [string, any]) => (
-                <Card key={feature}>
-                  <CardHeader className="pb-2">
-                    <CardTitle className="text-sm font-medium capitalize">{feature} Avg.</CardTitle>
-                  </CardHeader>
-                  <CardContent>
-                    <div className="text-2xl font-bold">{stats.averageRating.toFixed(1)}</div>
-                    <p className="text-xs text-slate-500">{stats.count} responses</p>
-                  </CardContent>
-                </Card>
-              ))}
-            </div>
-
-            <Card>
-              <CardHeader>
-                <CardTitle>User Feedback & Feature Adoption</CardTitle>
-                <p className="text-sm text-slate-500">Analyze survey results to understand user needs and feature performance.</p>
-              </CardHeader>
-              <CardContent>
-                <div className="space-y-4">
-                  {surveys.length === 0 ? (
-                    <p className="text-center py-8 text-slate-400">No survey responses yet</p>
-                  ) : (
-                    <div className="border rounded-lg overflow-x-auto">
-                      <table className="w-full text-sm">
-                        <thead className="bg-slate-50 border-b">
-                          <tr>
-                            <th className="text-left p-3 font-medium">Feature</th>
-                            <th className="text-left p-3 font-medium">Rating</th>
-                            <th className="text-left p-3 font-medium">Feedback</th>
-                            <th className="text-left p-3 font-medium">User</th>
-                            <th className="text-left p-3 font-medium">Date</th>
-                          </tr>
-                        </thead>
-                        <tbody className="divide-y">
-                          {surveys.map((survey: any) => (
-                            <tr key={survey.id}>
-                              <td className="p-3 capitalize font-medium">{survey.feature}</td>
-                              <td className="p-3">
-                                <div className="flex">
-                                  {[...Array(5)].map((_, i) => (
-                                    <span key={i} className={`text-xs ${i < survey.rating ? 'text-amber-500' : 'text-slate-200'}`}>★</span>
-                                  ))}
-                                </div>
-                              </td>
-                              <td className="p-3 max-w-xs truncate">{survey.feedback || '-'}</td>
-                              <td className="p-3 text-xs text-slate-500 font-mono">
-                                {users.find((u: any) => u.userId === survey.userId)?.email || survey.userId.substring(0, 8)}
-                              </td>
-                              <td className="p-3 text-xs text-slate-500">
-                                {new Date(survey.createdAt).toLocaleDateString()}
-                              </td>
-                            </tr>
-                          ))}
-                        </tbody>
-                      </table>
-                    </div>
-                  )}
-                </div>
-              </CardContent>
-            </Card>
-          </div>
-        </TabsContent>
+        </>
+      );
+    })()}
+  </TabsContent>
 
         <TabsContent value="flagged-posts" className="space-y-4">
           <Card>
@@ -4421,7 +6456,7 @@ export default function AdminDashboard() {
                                 {(dispute.status || 'status').replace('_', ' ')}
                               </Badge>
                               <span className="text-xs text-slate-400">
-                                Opened: {new Date(dispute.createdAt).toLocaleDateString()}
+                                Opened: {formatFirestoreDate(dispute.createdAt).toLocaleDateString()}
                               </span>
                             </div>
                             <h3 className="font-bold text-lg">{dispute.reason}</h3>
@@ -5006,6 +7041,7 @@ export default function AdminDashboard() {
                         <SelectContent>
                           <SelectItem value="constitution">Constitution</SelectItem>
                           <SelectItem value="police_act">Police Act</SelectItem>
+                          <SelectItem value="case_documents">Case Documents</SelectItem>
                           <SelectItem value="forum">Forum Data</SelectItem>
                           <SelectItem value="marketplace">Marketplace Data</SelectItem>
                           <SelectItem value="events">Events Data</SelectItem>
@@ -5071,16 +7107,114 @@ export default function AdminDashboard() {
             </Card>
           </div>
         </TabsContent>
+
+        <TabsContent value="surveys" className="space-y-6">
+          <div className="flex justify-between items-center">
+            <div>
+              <h2 className="text-2xl font-bold tracking-tight">Adoption & Feedback</h2>
+              <p className="text-muted-foreground">Monitor user adoption and feature feedback.</p>
+            </div>
+          </div>
+
+          <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
+            {Object.entries(surveyStats).map(([feature, stats]: [string, any]) => (
+              <Card key={feature}>
+                <CardHeader className="pb-2">
+                  <CardTitle className="text-sm font-medium capitalize">{feature.replace(/-/g, ' ')}</CardTitle>
+                </CardHeader>
+                <CardContent>
+                  <div className="flex flex-col gap-1">
+                    <div className="flex justify-between items-end">
+                      <span className="text-2xl font-bold">{stats.averageRating.toFixed(1)}/5</span>
+                      <span className="text-xs text-muted-foreground">{stats.count} responses</span>
+                    </div>
+                    <div className="w-full bg-slate-100 h-2 rounded-full mt-2">
+                      <div 
+                        className="bg-blue-500 h-2 rounded-full transition-all" 
+                        style={{ width: `${(stats.averageRating / 5) * 100}%` }}
+                      />
+                    </div>
+                  </div>
+                </CardContent>
+              </Card>
+            ))}
+            {Object.keys(surveyStats).length === 0 && (
+              <div className="col-span-full py-12 text-center bg-slate-50 rounded-xl border-2 border-dashed">
+                <MessageSquare className="h-12 w-12 text-slate-300 mx-auto mb-4" />
+                <h3 className="text-lg font-medium text-slate-900">No feedback data yet</h3>
+                <p className="text-slate-500">Feature feedback will appear here as users submit surveys.</p>
+              </div>
+            )}
+          </div>
+
+          <Card>
+            <CardHeader>
+              <CardTitle>Recent Responses</CardTitle>
+            </CardHeader>
+            <CardContent>
+              <div className="space-y-6">
+                {surveys.length === 0 ? (
+                  <p className="text-center py-8 text-slate-400">No individual responses found</p>
+                ) : (
+                  <div className="rounded-md border">
+                    <Table>
+                      <TableHeader>
+                        <TableRow>
+                          <TableHead>User</TableHead>
+                          <TableHead>Feature</TableHead>
+                          <TableHead>Rating</TableHead>
+                          <TableHead>Feedback</TableHead>
+                          <TableHead>Date</TableHead>
+                        </TableRow>
+                      </TableHeader>
+                      <TableBody>
+                        {surveys.map((survey: any) => (
+                          <TableRow key={survey.id}>
+                            <TableCell className="font-medium text-xs">
+                              {survey.userId.substring(0, 8)}...
+                            </TableCell>
+                            <TableCell className="capitalize">{survey.feature.replace(/-/g, ' ')}</TableCell>
+                            <TableCell>
+                              <div className="flex gap-0.5">
+                                {[1, 2, 3, 4, 5].map((star) => (
+                                  <Star 
+                                    key={star}
+                                    className={`h-3 w-3 ${star <= survey.rating ? 'fill-yellow-400 text-yellow-400' : 'text-slate-300'}`}
+                                  />
+                                ))}
+                              </div>
+                            </TableCell>
+                            <TableCell className="max-w-md">
+                              <p className="text-sm italic text-slate-600 line-clamp-2">
+                                {survey.feedback || "No comment provided"}
+                              </p>
+                            </TableCell>
+                            <TableCell className="text-xs text-slate-500">
+                              {new Date(survey.createdAt).toLocaleDateString()}
+                            </TableCell>
+                          </TableRow>
+                        ))}
+                      </TableBody>
+                    </Table>
+                  </div>
+                )}
+              </div>
+            </CardContent>
+          </Card>
+        </TabsContent>
       </Tabs>
-    </div>
+    </motion.div>
+  </AnimatePresence>
+</div>
+</main>
       <Dialog open={!!confirmAction} onOpenChange={() => setConfirmAction(null)}>
         <DialogContent>
           <DialogHeader>
             <DialogTitle className={confirmAction?.type === 'cache' ? 'text-red-600' : ''}>
-              {confirmAction?.title}
+              {confirmAction?.title || "Confirm Action"}
             </DialogTitle>
             <DialogDescription>
-              {confirmAction?.description}
+              {confirmAction?.description || "Are you sure you want to perform this action?"}
             </DialogDescription>
           </DialogHeader>
           <DialogFooter className="gap-2 sm:gap-0">
@@ -5166,6 +7300,9 @@ export default function AdminDashboard() {
         <DialogContent className="max-w-md">
           <DialogHeader>
             <DialogTitle>User Details</DialogTitle>
+            <DialogDescription>
+              Detailed information about the selected user account.
+            </DialogDescription>
           </DialogHeader>
           {viewingUser && (
             <div className="space-y-4">
@@ -5186,8 +7323,8 @@ export default function AdminDashboard() {
                 </div>
                 <div className="space-y-1">
                   <p className="text-slate-500">Status</p>
-                  <Badge variant={viewingUser.kycStatus === 'verified' ? 'default' : 'secondary'}>
-                    {viewingUser.kycStatus || 'pending'}
+                  <Badge variant={viewingUser.emailVerificationStatus === 'verified' ? 'default' : 'secondary'}>
+                    {viewingUser.emailVerificationStatus || 'pending'}
                   </Badge>
                 </div>
                 <div className="space-y-1">
@@ -5208,7 +7345,7 @@ export default function AdminDashboard() {
                 </div>
                 <div className="space-y-1">
                   <p className="text-slate-500">Joined</p>
-                  <p>{viewingUser.createdAt ? new Date(viewingUser.createdAt).toLocaleDateString() : 'N/A'}</p>
+                  <p>{viewingUser.createdAt ? formatFirestoreDate(viewingUser.createdAt).toLocaleDateString() : 'N/A'}</p>
                 </div>
               </div>
             </div>
@@ -5241,12 +7378,12 @@ export default function AdminDashboard() {
                 />
               </div>
               <div className="space-y-2">
-                <Label>KYC Status</Label>
+                <Label>Email Status</Label>
                 <Select 
-                  value={(editingUser || editingVendor).kycStatus || 'pending'}
+                  value={(editingUser || editingVendor).emailVerificationStatus || 'pending'} 
                   onValueChange={(value) => {
-                    if (editingUser) setEditingUser({ ...editingUser, kycStatus: value });
-                    else setEditingVendor({ ...editingVendor, kycStatus: value });
+                    if (editingUser) setEditingUser({ ...editingUser, emailVerificationStatus: value });
+                    else setEditingVendor({ ...editingVendor, emailVerificationStatus: value });
                   }}
                 >
                   <SelectTrigger>
@@ -5294,7 +7431,7 @@ export default function AdminDashboard() {
                   userId: target.userId, 
                   updates: {
                     displayName: target.displayName,
-                    kycStatus: target.kycStatus,
+                    emailVerificationStatus: target.emailVerificationStatus,
                     isAdmin: target.isAdmin,
                     isVendor: target.isVendor
                   }
@@ -5313,6 +7450,9 @@ export default function AdminDashboard() {
         <DialogContent className="max-w-2xl">
           <DialogHeader>
             <DialogTitle>Edit Job Opportunity</DialogTitle>
+            <DialogDescription>
+              Update the job details, requirements, and contact information.
+            </DialogDescription>
           </DialogHeader>
           {editingJob && (
             <div className="space-y-4 py-4">
@@ -5402,6 +7542,9 @@ export default function AdminDashboard() {
         <DialogContent className="max-w-2xl">
           <DialogHeader>
             <DialogTitle>Edit Event</DialogTitle>
+            <DialogDescription>
+              Update event information, schedule, and location details.
+            </DialogDescription>
           </DialogHeader>
           {editingEvent && (
             <div className="space-y-4 py-4">
@@ -5479,5 +7622,6 @@ export default function AdminDashboard() {
         </DialogContent>
       </Dialog>
     </div>
+  </div>
   );
 }

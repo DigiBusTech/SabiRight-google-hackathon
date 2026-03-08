@@ -3,53 +3,96 @@ import { useAuth } from "@/context/AuthContext";
 import { Zap, AlertCircle } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
+import { cn } from "@/lib/utils";
 
 interface CreditDisplayProps {
   compact?: boolean;
   onClick?: () => void;
+  className?: string;
 }
 
-export function CreditDisplay({ compact = false, onClick }: CreditDisplayProps) {
+export function CreditDisplay({ compact = false, onClick, className }: CreditDisplayProps) {
   const { user } = useAuth();
 
-  const { data: credits, isLoading } = useQuery({
+  const { data: credits, isLoading, error, refetch } = useQuery({
     queryKey: [`credits-${user?.uid}`],
     queryFn: async () => {
       if (!user?.uid) return null;
-      const res = await fetch(`/api/credits/${user.uid}/available`);
-      if (!res.ok) return null;
-      return res.json();
+      try {
+        const res = await fetch(`/api/credits/${user.uid}/available`);
+        if (!res.ok) {
+          const errorData = await res.json().catch(() => ({}));
+          throw new Error(errorData.error || 'Failed to fetch credits');
+        }
+        return res.json();
+      } catch (err: any) {
+        console.error('Error fetching credits:', err);
+        throw err;
+      }
     },
     enabled: !!user?.uid,
     refetchInterval: 30000, // Refresh every 30 seconds
+    retry: 2,
   });
 
-  if (!credits) return null;
+  if (isLoading) {
+    return (
+      <div className="bg-slate-50 border border-slate-200 rounded-lg p-4 animate-pulse">
+        <div className="h-4 bg-slate-200 rounded w-1/2 mb-2"></div>
+        <div className="h-8 bg-slate-200 rounded w-3/4"></div>
+      </div>
+    );
+  }
 
-  const percentageUsed = credits.totalCredits > 0 
-    ? Math.round((credits.usedCredits / credits.totalCredits) * 100)
+  if (error || !credits) {
+    if (compact) return null;
+    return (
+      <div className="bg-red-50 border border-red-100 rounded-lg p-4 flex flex-col gap-2">
+        <div className="flex items-center gap-2 text-red-700">
+          <AlertCircle className="h-4 w-4" />
+          <p className="text-xs font-bold uppercase">Credit Update Failed</p>
+        </div>
+        <Button 
+          variant="outline" 
+          size="sm" 
+          onClick={() => refetch()}
+          className="w-full text-xs py-1 h-7 border-red-200 hover:bg-red-100 text-red-700"
+        >
+          Retry Connection
+        </Button>
+      </div>
+    );
+  }
+
+  const available = credits.totalCredits || 0;
+  const total = (credits.totalCredits || 0) + (credits.usedCredits || 0);
+
+  const percentageUsed = total > 0 
+    ? Math.round((credits.usedCredits / total) * 100)
     : 0;
 
-  const isLow = credits.availableCredits <= 2;
+  const isLow = available <= 2;
 
   if (compact) {
     return (
       <div 
-        className={`flex items-center gap-2 px-3 py-2 rounded-lg border text-sm font-semibold ${
+        className={cn(
+          "flex items-center gap-2 px-3 py-2 rounded-lg border text-sm font-semibold cursor-pointer",
           isLow 
             ? 'bg-red-50 border-red-200 text-red-700' 
-            : 'bg-blue-50 border-blue-200 text-blue-700'
-        }`}
+            : 'bg-blue-50 border-blue-200 text-blue-700',
+          className
+        )}
         onClick={onClick}
       >
-        <Zap className={`h-4 w-4 ${isLow ? 'text-red-500' : 'text-blue-500'}`} />
-        {credits.availableCredits}/{credits.totalCredits}
+        <Zap className={cn("h-4 w-4", isLow ? 'text-red-500' : 'text-blue-500')} />
+        {available}
       </div>
     );
   }
 
   return (
-    <div className="bg-gradient-to-r from-blue-50 to-slate-50 border border-blue-100 rounded-lg p-4">
+    <div className={cn("bg-gradient-to-r from-blue-50 to-slate-50 border border-blue-100 rounded-lg p-4", className)}>
       <div className="flex items-center justify-between mb-3">
         <div className="flex items-center gap-2">
           <div className={`h-8 w-8 rounded-full ${isLow ? 'bg-red-100' : 'bg-blue-100'} flex items-center justify-center`}>
@@ -58,7 +101,7 @@ export function CreditDisplay({ compact = false, onClick }: CreditDisplayProps) 
           <div>
             <p className="text-xs font-bold text-slate-600 uppercase">Daily Credits</p>
             <p className="text-lg font-bold text-slate-900">
-              {credits.availableCredits} / {credits.totalCredits}
+              {available} Available
             </p>
           </div>
         </div>

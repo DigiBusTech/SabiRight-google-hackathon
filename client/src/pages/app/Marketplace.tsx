@@ -5,12 +5,13 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Textarea } from "@/components/ui/textarea";
 import { Label } from "@/components/ui/label";
-import { Search, MapPin, Star, Clock, TrendingUp, Phone, Mail, Navigation, Wallet, MessageCircle, Shield } from "lucide-react";
+import { Search, MapPin, Star, Clock, TrendingUp, Phone, Mail, Navigation, Wallet, MessageCircle, Shield, Zap, Check } from "lucide-react";
 import { useToast } from "@/hooks/use-toast";
 import { useAuth } from "@/context/AuthContext";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { useLocation } from "wouter";
 import { SurveyDialog } from "@/components/SurveyDialog";
+import { EmailVerificationPopup } from "@/components/EmailVerificationPopup";
 
 interface ServiceProvider {
   id: string;
@@ -28,6 +29,7 @@ interface ServiceProvider {
   contactPhone: string;
   contactEmail: string;
   priceRange: string;
+  priceList?: { item: string; price: string }[];
   distanceKm?: number;
   estimatedTimeMin?: number;
   reason?: string;
@@ -41,8 +43,23 @@ declare global {
   }
 }
 
+import { motion, AnimatePresence } from "framer-motion";
+
+const containerVariants = {
+  hidden: { opacity: 0 },
+  visible: {
+    opacity: 1,
+    transition: { staggerChildren: 0.1 }
+  }
+};
+
+const itemVariants = {
+  hidden: { opacity: 0, y: 20 },
+  visible: { opacity: 1, y: 0 }
+};
+
 export default function Marketplace() {
-  const { user } = useAuth();
+  const { user, profile } = useAuth();
   const { toast } = useToast();
   const [, setLocation] = useLocation();
   const queryClient = useQueryClient();
@@ -61,6 +78,8 @@ export default function Marketplace() {
   const [bookingAmount, setBookingAmount] = useState("");
   const [bookingDate, setBookingDate] = useState("");
   const [isCreatingBooking, setIsCreatingBooking] = useState(false);
+  const [showVerificationPopup, setShowVerificationPopup] = useState(false);
+  const [verificationAction, setVerificationAction] = useState("");
   
   // Fetch wallet balance
   const { data: wallet } = useQuery({
@@ -223,6 +242,13 @@ export default function Marketplace() {
       setLocation("/login");
       return;
     }
+
+    if (profile?.emailVerificationStatus !== 'verified') {
+      setVerificationAction("request services in the marketplace");
+      setShowVerificationPopup(true);
+      return;
+    }
+
     setBookingProvider(provider);
     setBookingDescription("");
     setBookingAmount(provider.priceRange?.replace(/[^\d]/g, '') || "5000");
@@ -320,201 +346,249 @@ export default function Marketplace() {
   };
 
   return (
-    <div className="space-y-8 pb-20">
-      <div className="flex flex-col md:flex-row justify-between items-start md:items-center gap-4">
+    <motion.div 
+      variants={containerVariants}
+      initial="hidden"
+      animate="visible"
+      className="space-y-8 pb-20"
+    >
+      {/* Email Verification Popup */}
+      <EmailVerificationPopup 
+        isOpen={showVerificationPopup} 
+        onClose={() => setShowVerificationPopup(false)} 
+        actionName={verificationAction}
+      />
+
+      <motion.div variants={itemVariants} className="flex flex-col md:flex-row justify-between items-start md:items-center gap-4">
         <div>
-          <h2 className="text-2xl font-bold tracking-tight">Vetted Service Marketplace</h2>
-          <p className="text-slate-500">Find verified professionals with smart proximity routing powered by real-time traffic data.</p>
+          <h2 className="text-2xl md:text-3xl font-bold tracking-tight text-slate-900">Vetted Service Marketplace</h2>
+          <p className="text-sm md:text-base text-slate-500">Find verified professionals with smart proximity routing powered by real-time traffic data.</p>
         </div>
         {userLocation && (
-          <Badge className="bg-green-100 text-green-800 border-green-200">
-            <Navigation className="h-3 w-3 mr-1" /> Location Active
+          <Badge className="bg-green-100 text-green-800 border-green-200 py-1.5 px-3">
+            <Navigation className="h-3.5 w-3.5 mr-1.5" /> <span className="text-[11px] font-bold">Location Active</span>
           </Badge>
         )}
-      </div>
+      </motion.div>
 
       {/* Proximity Info Banner */}
-      <div className="bg-blue-50 border border-blue-200 rounded-xl p-4">
-        <p className="text-sm text-blue-800 font-medium">
-          <TrendingUp className="inline h-4 w-4 mr-2" />
-          <strong>Smart Proximity Matching:</strong> We match you with verified professionals using real route calculations. 
-          Not just distance — we factor in actual traffic data to ensure they arrive when you need them.
-        </p>
-      </div>
+      <motion.div variants={itemVariants} className="bg-gradient-to-r from-blue-50 to-indigo-50 border border-blue-100 rounded-2xl p-4 shadow-sm">
+        <div className="flex gap-3">
+          <div className="h-10 w-10 bg-blue-100 rounded-xl flex items-center justify-center flex-shrink-0">
+            <TrendingUp className="h-5 w-5 text-blue-600" />
+          </div>
+          <div>
+            <h4 className="text-sm font-bold text-blue-900 mb-0.5">Smart Proximity Matching</h4>
+            <p className="text-xs text-blue-700 leading-relaxed">
+              We factor in <strong>actual traffic data</strong> and real route calculations to ensure your service provider arrives exactly when you need them.
+            </p>
+          </div>
+        </div>
+      </motion.div>
 
       {/* Search & Filter */}
-      <div className="space-y-4">
-        <div className="flex gap-2">
-          <div className="relative flex-1">
-            <Search className="absolute left-3 top-3 h-4 w-4 text-slate-400" />
+      <motion.div variants={itemVariants} className="space-y-6">
+        <div className="flex flex-col gap-4">
+          <div className="relative w-full">
+            <Search className="absolute left-4 top-1/2 -translate-y-1/2 h-5 w-5 text-slate-400" />
             <Input 
               placeholder="Search by name, profession, or specialty..." 
-              className="pl-10 bg-white" 
+              className="pl-12 h-12 bg-white rounded-2xl border-slate-200 focus:border-primary focus:ring-primary/20 transition-all text-base shadow-sm" 
               value={searchTerm}
               onChange={(e) => setSearchTerm(e.target.value)}
             />
           </div>
         </div>
 
-        {/* Categories */}
-        <div className="flex flex-wrap gap-2">
-          {CATEGORIES.map((cat) => (
-            <button
-              key={cat}
-              onClick={() => setSelectedCategory(cat)}
-              className={`px-4 py-2 rounded-full text-sm font-medium transition-all ${
-                selectedCategory === cat
-                  ? "bg-primary text-white"
-                  : "bg-slate-100 text-slate-700 hover:bg-slate-200"
-              }`}
-            >
-              {cat}
-            </button>
-          ))}
-        </div>
-
-        {/* Sort Options */}
-        <div className="flex gap-2">
+      {/* Categories */}
+      <div className="flex overflow-x-auto pb-4 -mx-4 px-4 no-scrollbar gap-2 md:flex-wrap">
+        {CATEGORIES.map((cat) => (
           <button
-            onClick={() => setSortBy("time")}
-            className={`flex items-center gap-2 px-4 py-2 rounded-lg text-sm font-medium transition-all ${
-              sortBy === "time"
-                ? "bg-blue-100 text-blue-700 border border-blue-300"
-                : "bg-white text-slate-600 border border-slate-200 hover:border-slate-300"
+            key={cat}
+            onClick={() => setSelectedCategory(cat)}
+            className={`px-5 py-2.5 rounded-full text-[13px] md:text-sm font-bold transition-all whitespace-nowrap shadow-sm ${
+              selectedCategory === cat
+                ? "bg-primary text-white ring-2 ring-primary/20"
+                : "bg-white text-slate-700 border border-slate-200 hover:bg-slate-50"
             }`}
           >
-            <Clock className="h-4 w-4" /> Fastest Arrival
+            {cat}
           </button>
-          <button
-            onClick={() => setSortBy("distance")}
-            className={`flex items-center gap-2 px-4 py-2 rounded-lg text-sm font-medium transition-all ${
-              sortBy === "distance"
-                ? "bg-green-100 text-green-700 border border-green-300"
-                : "bg-white text-slate-600 border border-slate-200 hover:border-slate-300"
-            }`}
-          >
-            <MapPin className="h-4 w-4" /> Closest Distance
-          </button>
-          <button
-            onClick={() => setSortBy("rating")}
-            className={`flex items-center gap-2 px-4 py-2 rounded-lg text-sm font-medium transition-all ${
-              sortBy === "rating"
-                ? "bg-yellow-100 text-yellow-700 border border-yellow-300"
-                : "bg-white text-slate-600 border border-slate-200 hover:border-slate-300"
-            }`}
-          >
-            <Star className="h-4 w-4" /> Top Rated
-          </button>
-        </div>
+        ))}
       </div>
 
-      {/* Providers Grid */}
-      <div className="grid md:grid-cols-2 gap-6">
-        {sortedProviders.length === 0 ? (
-          <div className="col-span-2 text-center py-12 text-slate-400">
-            No providers found matching your criteria.
-          </div>
-        ) : (
-          sortedProviders.map((provider) => (
-            <Card 
-              key={provider.id} 
-              className="group hover:shadow-lg transition-all duration-300 border-slate-200 cursor-pointer hover:border-primary/50"
-              onClick={() => setSelectedProvider(provider)}
+      {/* Sort Options */}
+      <div className="flex overflow-x-auto pb-4 -mx-4 px-4 no-scrollbar gap-3">
+        <button
+          onClick={() => setSortBy("time")}
+          className={`flex items-center gap-2 px-4 py-2.5 rounded-xl text-[13px] font-bold transition-all whitespace-nowrap shadow-sm ${
+            sortBy === "time"
+              ? "bg-blue-600 text-white ring-4 ring-blue-100"
+              : "bg-white text-slate-600 border border-slate-200 hover:border-blue-200"
+          }`}
+        >
+          <Clock className="h-4 w-4" /> Fastest Arrival
+        </button>
+        <button
+          onClick={() => setSortBy("distance")}
+          className={`flex items-center gap-2 px-4 py-2.5 rounded-xl text-[13px] font-bold transition-all whitespace-nowrap shadow-sm ${
+            sortBy === "distance"
+              ? "bg-green-600 text-white ring-4 ring-green-100"
+              : "bg-white text-slate-600 border border-slate-200 hover:border-green-200"
+          }`}
+        >
+          <MapPin className="h-4 w-4" /> Closest Distance
+        </button>
+        <button
+          onClick={() => setSortBy("rating")}
+          className={`flex items-center gap-2 px-4 py-2.5 rounded-xl text-[13px] font-bold transition-all whitespace-nowrap shadow-sm ${
+            sortBy === "rating"
+              ? "bg-amber-600 text-white ring-4 ring-amber-100"
+              : "bg-white text-slate-600 border border-slate-200 hover:border-amber-200"
+          }`}
+        >
+          <Star className="h-4 w-4" /> Top Rated
+        </button>
+      </div>
+    </motion.div>
+
+    {/* Providers Grid */}
+    <motion.div variants={containerVariants} className="grid grid-cols-1 md:grid-cols-2 gap-4 md:gap-6">
+        <AnimatePresence>
+          {sortedProviders.length === 0 ? (
+            <motion.div 
+              initial={{ opacity: 0 }}
+              animate={{ opacity: 1 }}
+              className="col-span-2 text-center py-12 text-slate-400"
             >
-              <CardContent className="p-6">
-                <div className="flex justify-between items-start mb-4">
-                  <div>
-                    <h3 className="font-bold text-lg text-slate-900">{provider.name}</h3>
-                    <p className="text-sm text-slate-600 mb-2">{provider.type}</p>
-                    <p className="text-xs text-slate-500">{provider.specialization}</p>
-                  </div>
-                  {provider.verified && (
-                    <Badge className="bg-green-100 text-green-700 border-green-200">Verified</Badge>
-                  )}
-                </div>
-
-                {/* Proximity Logic Display */}
-                <div className="bg-blue-50 border border-blue-100 rounded-lg p-3 mb-4">
-                  <div className="flex items-center justify-between mb-2">
-                    <div>
-                      <p className="text-xs font-bold text-blue-900 uppercase">Estimated Arrival</p>
-                      <p className="text-lg font-bold text-blue-700 mt-1">{provider.estimatedTimeMin || '?'} min</p>
-                    </div>
-                    <div className="text-right">
-                      <p className="text-xs text-slate-600">{provider.distanceKm || '?'} km</p>
-                      <p className="text-xs text-slate-500 mt-1">from your location</p>
-                    </div>
-                  </div>
-                  {provider.reason && (
-                    <p className="text-xs text-blue-700 font-medium pt-2 border-t border-blue-200">
-                      ✓ {provider.reason}
-                    </p>
-                  )}
-                </div>
-
-                {/* Rating */}
-                <div className="flex items-center gap-2 mb-4">
-                  {[...Array(5)].map((_, i) => (
-                    <Star
-                      key={i}
-                      className={`h-3 w-3 ${i < Math.floor(parseFloat(provider.rating)) ? "fill-yellow-400 text-yellow-400" : "text-slate-300"}`}
-                    />
-                  ))}
-                  <span className="text-xs font-bold ml-1 text-slate-700">{provider.rating}</span>
-                  <span className="text-xs text-slate-400">({provider.reviewCount} reviews)</span>
-                </div>
-
-                {/* Location */}
-                <div className="flex items-center gap-2 text-xs text-slate-600 mb-4">
-                  <MapPin className="h-3 w-3" /> {provider.location}
-                </div>
-
-                {/* Action */}
-                <Button 
-                  className="w-full bg-primary hover:bg-primary/90 text-white font-bold"
-                  onClick={(e) => {
-                    e.stopPropagation();
-                    handleContact(provider);
-                  }}
+              No providers found matching your criteria.
+            </motion.div>
+          ) : (
+            sortedProviders.map((provider) => (
+              <motion.div
+                key={provider.id}
+                variants={itemVariants}
+                layout
+                whileHover={{ y: -4 }}
+                transition={{ type: "spring", stiffness: 300, damping: 25 }}
+              >
+                <Card 
+                  className="group hover:shadow-lg transition-all duration-300 border-slate-200 cursor-pointer hover:border-primary/50 overflow-hidden rounded-2xl"
+                  onClick={() => setSelectedProvider(provider)}
                 >
-                  Request Service
-                </Button>
-              </CardContent>
-            </Card>
-          ))
-        )}
-      </div>
+                  <CardContent className="p-5 md:p-6">
+                    <div className="flex justify-between items-start mb-4 gap-2">
+                      <div className="min-w-0 flex-1">
+                        <div className="flex items-center gap-2 mb-1">
+                          <h3 className="font-bold text-base md:text-lg text-slate-900 truncate">{provider.name}</h3>
+                          {provider.verified && (
+                            <div className="h-4 w-4 bg-green-500 rounded-full flex items-center justify-center flex-shrink-0" title="Verified">
+                              <Check className="h-2.5 w-2.5 text-white stroke-[4px]" />
+                            </div>
+                          )}
+                        </div>
+                        <p className="text-xs md:text-sm text-slate-600 mb-1 font-medium">{provider.type}</p>
+                        <p className="text-[11px] text-slate-500 line-clamp-1">{provider.specialization}</p>
+                      </div>
+                    </div>
+
+                    {/* Proximity Logic Display */}
+                    <div className="bg-slate-50 border border-slate-100 rounded-2xl p-3 mb-4">
+                      <div className="flex items-center justify-between mb-2">
+                        <div>
+                          <p className="text-[10px] font-bold text-slate-500 uppercase tracking-tight">Estimated Arrival</p>
+                          <p className="text-base md:text-lg font-black text-primary mt-0.5">{provider.estimatedTimeMin || '?'} min</p>
+                        </div>
+                        <div className="text-right">
+                          <p className="text-xs font-bold text-slate-700">{provider.distanceKm || '?'} km</p>
+                          <p className="text-[10px] text-slate-400 mt-0.5 font-medium">away</p>
+                        </div>
+                      </div>
+                      {provider.reason && (
+                        <p className="text-[11px] text-blue-700 font-bold pt-2 border-t border-blue-100/50 flex items-center gap-1">
+                          <Zap className="h-3 w-3 fill-current" /> {provider.reason}
+                        </p>
+                      )}
+                    </div>
+
+                    {/* Rating & Location */}
+                    <div className="flex flex-col gap-2 mb-5">
+                      <div className="flex items-center gap-2">
+                        <div className="flex items-center bg-amber-50 px-2 py-0.5 rounded-full border border-amber-100">
+                          <Star className="h-3 w-3 fill-amber-400 text-amber-400 mr-1" />
+                          <span className="text-xs font-black text-amber-700">{provider.rating}</span>
+                        </div>
+                        <span className="text-[11px] text-slate-400 font-medium">({provider.reviewCount} reviews)</span>
+                      </div>
+                      <div className="flex items-center gap-1.5 text-[11px] text-slate-500 font-medium">
+                        <MapPin className="h-3.5 w-3.5 text-slate-400 flex-shrink-0" /> <span className="truncate">{provider.location}</span>
+                      </div>
+                    </div>
+
+                    {/* Action */}
+                    <Button 
+                      className="w-full bg-primary hover:bg-primary/90 text-white font-black h-12 text-sm rounded-xl shadow-md group-hover:shadow-lg transition-all"
+                      onClick={(e) => {
+                        e.stopPropagation();
+                        handleContact(provider);
+                      }}
+                    >
+                      Request Service
+                    </Button>
+                  </CardContent>
+                </Card>
+              </motion.div>
+            ))
+          )}
+        </AnimatePresence>
+      </motion.div>
 
       {/* Provider Detail Modal */}
-      {selectedProvider && (
-        <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50 p-4">
-          <Card className="w-full max-w-2xl max-h-[90vh] overflow-y-auto bg-white rounded-lg shadow-xl">
-            <CardContent className="p-6">
-              <div className="flex justify-between items-start mb-6">
-                <div className="flex-1">
-                  <div className="flex items-start justify-between gap-4 mb-4">
-                    <div>
-                      <h2 className="text-2xl font-bold text-slate-900">{selectedProvider.name}</h2>
-                      <p className="text-lg text-slate-600 mt-1">{selectedProvider.type}</p>
+      <AnimatePresence>
+        {selectedProvider && (
+          <motion.div 
+            initial={{ opacity: 0 }}
+            animate={{ opacity: 1 }}
+            exit={{ opacity: 0 }}
+            className="fixed inset-0 bg-black/50 flex items-center justify-center z-50 p-4"
+            onClick={() => setSelectedProvider(null)}
+          >
+            <motion.div
+              initial={{ scale: 0.9, opacity: 0, y: 20 }}
+              animate={{ scale: 1, opacity: 1, y: 0 }}
+              exit={{ scale: 0.9, opacity: 0, y: 20 }}
+              className="w-full max-w-2xl max-h-[90vh] overflow-y-auto bg-white rounded-2xl shadow-2xl"
+              onClick={(e) => e.stopPropagation()}
+            >
+              <Card className="border-none shadow-none">
+                <CardContent className="p-6 md:p-8">
+                <div className="flex flex-col sm:flex-row justify-between items-start mb-6 gap-4">
+                  <div className="flex-1">
+                    <div className="flex flex-col sm:flex-row items-start justify-between gap-4 mb-2">
+                      <div>
+                        <h2 className="text-2xl font-bold text-slate-900">{selectedProvider.name}</h2>
+                        <p className="text-lg text-slate-600 mt-1">{selectedProvider.type}</p>
+                      </div>
+                      {selectedProvider.verified && (
+                        <Badge className="bg-green-100 text-green-700 border-green-200">✓ Verified</Badge>
+                      )}
                     </div>
-                    {selectedProvider.verified && (
-                      <Badge className="bg-green-100 text-green-700">✓ Verified</Badge>
-                    )}
                   </div>
+                  <button 
+                    onClick={() => setSelectedProvider(null)}
+                    className="p-2 hover:bg-slate-100 rounded-full transition-colors self-end sm:self-start"
+                  >
+                    <svg className="h-6 w-6 text-slate-400" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
+                    </svg>
+                  </button>
                 </div>
-                <button 
-                  onClick={() => setSelectedProvider(null)}
-                  className="p-2 hover:bg-slate-100 rounded-lg transition-colors"
-                >
-                  ✕
-                </button>
-              </div>
 
-              <div className="bg-blue-50 border border-blue-100 rounded-lg p-4 mb-6">
-                <p className="text-sm font-bold text-blue-900 uppercase mb-3">Smart Proximity Routing</p>
-                <div className="space-y-2">
-                  <div className="flex justify-between items-center">
-                    <span className="text-sm font-semibold text-slate-700">Estimated Arrival:</span>
+                <div className="bg-blue-50 border border-blue-100 rounded-xl p-4 mb-6">
+                  <p className="text-sm font-bold text-blue-900 uppercase mb-3">Smart Proximity Routing</p>
+                  <div className="space-y-2">
+                    <div className="flex justify-between items-center">
+                      <span className="text-sm font-semibold text-slate-700">Estimated Arrival:</span>
                     <span className="text-lg font-bold text-blue-700">{selectedProvider.estimatedTimeMin} minutes</span>
                   </div>
                   <div className="flex justify-between items-center">
@@ -551,6 +625,20 @@ export default function Marketplace() {
                 </div>
               </div>
 
+              {selectedProvider.priceList && selectedProvider.priceList.length > 0 && (
+                <div className="border-t pt-6 space-y-3">
+                  <p className="text-sm font-bold text-slate-600 uppercase">Service Price List</p>
+                  <div className="bg-slate-50 rounded-lg overflow-hidden border">
+                    {selectedProvider.priceList.map((item: any, index: number) => (
+                      <div key={index} className={`flex justify-between items-center p-3 text-sm ${index !== 0 ? 'border-t' : ''}`}>
+                        <span className="font-medium text-slate-700">{item.item}</span>
+                        <span className="font-bold text-primary">₦{parseFloat(item.price).toLocaleString()}</span>
+                      </div>
+                    ))}
+                  </div>
+                </div>
+              )}
+
               <div className="border-t pt-6 space-y-3">
                 <p className="text-sm font-bold text-slate-600 uppercase">Contact Information</p>
                 {selectedProvider.contactPhone && (
@@ -584,14 +672,30 @@ export default function Marketplace() {
               </Button>
             </CardContent>
           </Card>
-        </div>
-      )}
+        </motion.div>
+      </motion.div>
+    )}
+  </AnimatePresence>
 
       {/* Booking Modal */}
-      {showBookingModal && bookingProvider && (
-        <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50 p-2 sm:p-4 overflow-y-auto">
-          <Card className="w-full max-w-lg bg-white rounded-lg shadow-xl my-4 sm:my-8 max-h-[95vh] overflow-y-auto">
-            <CardContent className="p-4 sm:p-6">
+      <AnimatePresence>
+        {showBookingModal && bookingProvider && (
+          <motion.div 
+            initial={{ opacity: 0 }}
+            animate={{ opacity: 1 }}
+            exit={{ opacity: 0 }}
+            className="fixed inset-0 bg-black/50 flex items-center justify-center z-50 p-2 sm:p-4 overflow-y-auto"
+            onClick={() => setShowBookingModal(false)}
+          >
+            <motion.div
+              initial={{ scale: 0.9, opacity: 0, y: 20 }}
+              animate={{ scale: 1, opacity: 1, y: 0 }}
+              exit={{ scale: 0.9, opacity: 0, y: 20 }}
+              className="w-full max-w-lg bg-white rounded-2xl shadow-2xl overflow-hidden"
+              onClick={(e) => e.stopPropagation()}
+            >
+              <Card className="border-none shadow-none">
+                <CardContent className="p-4 sm:p-6">
               <div className="flex justify-between items-start mb-6">
                 <div>
                   <h2 className="text-xl font-bold text-slate-900">Book Service</h2>
@@ -697,17 +801,17 @@ export default function Marketplace() {
                 </div>
               </div>
 
-              <div className="flex gap-3 mt-6">
+              <div className="flex flex-col-reverse sm:flex-row gap-3 mt-8">
                 <Button 
                   variant="outline" 
-                  className="flex-1"
+                  className="flex-1 h-12 text-base font-bold rounded-xl"
                   onClick={() => setShowBookingModal(false)}
                   data-testid="button-cancel-booking"
                 >
                   Cancel
                 </Button>
                 <Button 
-                  className="flex-1 bg-primary hover:bg-primary/90 text-white font-bold"
+                  className="flex-1 h-12 text-base bg-primary hover:bg-primary/90 text-white font-bold rounded-xl"
                   onClick={handleCreateBooking}
                   disabled={isCreatingBooking || !bookingDescription.trim() || !bookingAmount}
                   data-testid="button-create-booking"
@@ -717,15 +821,17 @@ export default function Marketplace() {
               </div>
             </CardContent>
           </Card>
-        </div>
-      )}
-
-      <SurveyDialog 
-        isOpen={showSurveyDialog} 
-        onClose={() => setShowSurveyDialog(false)} 
-        feature="marketplace"
-      />
-    </div>
+        </motion.div>
+      </motion.div>
+    )}
+  </AnimatePresence>
+  
+  <SurveyDialog 
+    isOpen={showSurveyDialog} 
+    onClose={() => setShowSurveyDialog(false)} 
+    feature="marketplace"
+  />
+    </motion.div>
   );
 }
 

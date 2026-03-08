@@ -10,6 +10,7 @@ import { useAuth } from "@/context/AuthContext";
 import { useToast } from "@/hooks/use-toast";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { Link } from "wouter";
+import { EmailVerificationPopup } from "@/components/EmailVerificationPopup";
 
 interface VendorService {
   id: string;
@@ -24,6 +25,7 @@ interface VendorService {
   contactPhone: string;
   contactEmail: string;
   priceRange: string;
+  priceList: { item: string; price: string }[];
   rating: string;
   reviewCount: number;
   verified: boolean;
@@ -75,6 +77,8 @@ export default function VendorDashboard() {
     businessDocument: "",
     taxId: ""
   });
+  const [showVerificationPopup, setShowVerificationPopup] = useState(false);
+  const [verificationAction, setVerificationAction] = useState("");
   const [serviceForm, setServiceForm] = useState({
     name: "",
     type: "Lawyer",
@@ -85,7 +89,8 @@ export default function VendorDashboard() {
     longitude: "",
     contactPhone: "",
     contactEmail: "",
-    priceRange: ""
+    priceRange: "",
+    priceList: [] as { item: string; price: string }[]
   });
 
   const { data: application, refetch } = useQuery({
@@ -95,7 +100,7 @@ export default function VendorDashboard() {
       const res = await fetch(`/api/vendor/application/${user.uid}`);
       return res.ok ? res.json() : null;
     },
-    enabled: !!user?.uid && profileLoaded && profile?.vendorMode !== true,
+    enabled: !!user?.uid,
   });
 
   // Check if user is approved vendor
@@ -161,7 +166,8 @@ export default function VendorDashboard() {
       setShowAddService(false);
       setServiceForm({
         name: "", type: "Lawyer", specialization: "", description: "",
-        location: "", latitude: "", longitude: "", contactPhone: "", contactEmail: "", priceRange: ""
+        location: "", latitude: "", longitude: "", contactPhone: "", contactEmail: "", priceRange: "",
+        priceList: []
       });
       toast({ title: "Success", description: "Service listing created!" });
     },
@@ -185,7 +191,8 @@ export default function VendorDashboard() {
       setEditingService(null);
       setServiceForm({
         name: "", type: "Lawyer", specialization: "", description: "",
-        location: "", latitude: "", longitude: "", contactPhone: "", contactEmail: "", priceRange: ""
+        location: "", latitude: "", longitude: "", contactPhone: "", contactEmail: "", priceRange: "",
+        priceList: []
       });
       toast({ title: "Success", description: "Service updated!" });
     },
@@ -221,7 +228,8 @@ export default function VendorDashboard() {
       longitude: service.longitude || "",
       contactPhone: service.contactPhone || "",
       contactEmail: service.contactEmail || "",
-      priceRange: service.priceRange || ""
+      priceRange: service.priceRange || "",
+      priceList: service.priceList || []
     });
     setShowAddService(true);
   };
@@ -229,6 +237,12 @@ export default function VendorDashboard() {
   const handleApplyAsVendor = async () => {
     if (!user?.uid || !businessForm.businessName || !businessForm.serviceType) {
       toast({ title: "Error", description: "Please fill all fields", variant: "destructive" });
+      return;
+    }
+
+    if (profile?.emailVerificationStatus !== 'verified') {
+      setVerificationAction("apply for a vendor account");
+      setShowVerificationPopup(true);
       return;
     }
 
@@ -302,7 +316,8 @@ export default function VendorDashboard() {
     setEditingService(null);
     setServiceForm({
       name: "", type: "Lawyer", specialization: "", description: "",
-      location: "", latitude: "", longitude: "", contactPhone: "", contactEmail: "", priceRange: ""
+      location: "", latitude: "", longitude: "", contactPhone: "", contactEmail: "", priceRange: "",
+      priceList: []
     });
   };
 
@@ -319,6 +334,12 @@ export default function VendorDashboard() {
 
   return (
     <div className="space-y-8 pb-20">
+      {/* Email Verification Popup */}
+      <EmailVerificationPopup 
+        isOpen={showVerificationPopup} 
+        onClose={() => setShowVerificationPopup(false)} 
+        actionName={verificationAction}
+      />
       <div>
         <h2 className="text-2xl font-bold tracking-tight">Vendor Dashboard</h2>
         <p className="text-slate-500 mt-1">Manage your business and services</p>
@@ -383,7 +404,7 @@ export default function VendorDashboard() {
                 <AlertCircle className="h-5 w-5 text-yellow-600 flex-shrink-0 mt-0.5" />
                 <div>
                   <p className="text-sm font-bold text-yellow-800">Pending Review</p>
-                  <p className="text-xs text-yellow-700">Admin will review your KYC and business documents</p>
+                  <p className="text-xs text-yellow-700">Admin will review your email verification and business documents</p>
                 </div>
               </div>
             )}
@@ -773,11 +794,69 @@ export default function VendorDashboard() {
                         className="w-full border rounded-lg p-2 text-sm"
                       >
                         <option value="">Select price range</option>
-                        <option value="$">Budget Friendly ($)</option>
-                        <option value="$$">Moderate ($$)</option>
-                        <option value="$$$">Premium ($$$)</option>
-                        <option value="$$$$">Luxury ($$$$)</option>
+                        <option value="₦">Budget Friendly (₦)</option>
+                        <option value="₦₦">Moderate (₦₦)</option>
+                        <option value="₦₦₦">Premium (₦₦₦)</option>
+                        <option value="₦₦₦₦">Luxury (₦₦₦₦)</option>
                       </select>
+                    </div>
+
+                    <div className="space-y-3">
+                      <div className="flex items-center justify-between">
+                        <label className="block text-sm font-bold">Service Price List</label>
+                        <Button 
+                          type="button" 
+                          variant="outline" 
+                          size="sm" 
+                          className="h-7 text-[10px]"
+                          onClick={() => setServiceForm({
+                            ...serviceForm, 
+                            priceList: [...serviceForm.priceList, { item: "", price: "" }]
+                          })}
+                        >
+                          <Plus className="h-3 w-3 mr-1" /> Add Item
+                        </Button>
+                      </div>
+                      
+                      {serviceForm.priceList.map((item, index) => (
+                        <div key={index} className="flex gap-2 items-center">
+                          <Input 
+                            placeholder="Service name (e.g. Consultation)" 
+                            className="flex-1 text-xs"
+                            value={item.item}
+                            onChange={(e) => {
+                              const newList = [...serviceForm.priceList];
+                              newList[index].item = e.target.value;
+                              setServiceForm({ ...serviceForm, priceList: newList });
+                            }}
+                          />
+                          <Input 
+                            placeholder="Price (e.g. 5000)" 
+                            className="w-24 text-xs"
+                            value={item.price}
+                            onChange={(e) => {
+                              const newList = [...serviceForm.priceList];
+                              newList[index].price = e.target.value;
+                              setServiceForm({ ...serviceForm, priceList: newList });
+                            }}
+                          />
+                          <Button 
+                            type="button" 
+                            variant="ghost" 
+                            size="icon" 
+                            className="h-8 w-8 text-slate-400 hover:text-red-500"
+                            onClick={() => {
+                              const newList = serviceForm.priceList.filter((_, i) => i !== index);
+                              setServiceForm({ ...serviceForm, priceList: newList });
+                            }}
+                          >
+                            <X className="h-4 w-4" />
+                          </Button>
+                        </div>
+                      ))}
+                      {serviceForm.priceList.length === 0 && (
+                        <p className="text-[10px] text-slate-400 italic">No price items added yet. Click 'Add Item' to list specific service prices.</p>
+                      )}
                     </div>
 
                     <Button 

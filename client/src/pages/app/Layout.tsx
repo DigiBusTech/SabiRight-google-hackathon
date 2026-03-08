@@ -68,13 +68,13 @@ export default function AppLayout({ children }: AppLayoutProps) {
 
   // Keep SabiSquare open if active
   useEffect(() => {
-    if (location === '/app/forum' || location === '/app/events' || location === '/app/jobs') {
+    if (location === '/app/forum') {
       setIsSabiSquareOpen(true);
     }
   }, [location]);
 
   // Protect Route
-  const publicRoutes = ['/app/forum', '/app/jobs', '/app/events'];
+  const publicRoutes = ['/app/forum'];
   const isPublicRoute = publicRoutes.includes(location);
 
   if (!loading && !user && !isPublicRoute) {
@@ -114,17 +114,12 @@ export default function AppLayout({ children }: AppLayoutProps) {
     { icon: LayoutDashboard, label: "Dashboard", href: "/app" },
     { icon: Scale, label: "SabiRight AI", href: "/app/civic", description: "Law-based Guidance" },
     { icon: AlertTriangle, label: "SabiMove", href: "/app/traffic", description: "Smart Traffic" },
-    { icon: Store, label: "SabiMarket", href: "/app/marketplace", description: "Find Pros" },
-    { icon: Wallet, label: "Wallet", href: "/app/wallet" },
-    { icon: CalendarCheck, label: "My Bookings", href: "/app/bookings" },
-    { icon: Zap, label: "Plans & Billing", href: "/app/plans" },
+    { icon: BadgeCheck, label: "Sabi Contribution", href: "/app/credits" },
     { icon: Settings, label: "Settings", href: "/app/settings" },
   ];
 
   const sabiSquareItems = [
     { icon: Users, label: "Community Forum", href: "/app/forum" },
-    { icon: Briefcase, label: "SabiWork", href: "/app/jobs" },
-    { icon: Calendar, label: "Events", href: "/app/events" },
   ];
 
   const vendorItems = profile?.isVendor ? [
@@ -171,18 +166,7 @@ export default function AppLayout({ children }: AppLayoutProps) {
         </div>
 
         <nav className="flex-1 p-4 space-y-2 overflow-y-auto custom-scrollbar">
-          {profile?.isVendor && (
-            <div className="flex items-center justify-between px-4 py-3 mb-4 bg-white/5 rounded-xl border border-white/10">
-              <div className="flex flex-col">
-                <span className="text-[10px] font-bold text-slate-400 uppercase tracking-wider">Vendor Mode</span>
-                <span className="text-xs font-semibold text-white">{profile.vendorMode ? 'Active' : 'Off'}</span>
-              </div>
-              <Switch 
-                checked={profile.vendorMode} 
-                onCheckedChange={(checked) => switchVendorMode(checked)}
-              />
-            </div>
-          )}
+          {/* Vendor mode removed */}
 
           {/* Admin Items */}
           {adminItems.map((item) => {
@@ -232,13 +216,13 @@ export default function AppLayout({ children }: AppLayoutProps) {
               onClick={() => setIsSabiSquareOpen(!isSabiSquareOpen)}
               className={cn(
                 "w-full flex items-center justify-between px-4 py-3 rounded-xl transition-all duration-200 group",
-                (location === '/app/forum' || location === '/app/events' || location === '/app/jobs')
+                (location === '/app/forum')
                   ? "text-white font-semibold"
                   : "text-slate-400 hover:bg-white/5 hover:text-white"
               )}
             >
               <div className="flex items-center gap-3">
-                <Users className={cn("h-5 w-5", (location === '/app/forum' || location === '/app/events' || location === '/app/jobs') ? "text-primary" : "text-slate-500 group-hover:text-white")} />
+                <Users className={cn("h-5 w-5", (location === '/app/forum') ? "text-primary" : "text-slate-500 group-hover:text-white")} />
                 <span>SabiSquare</span>
               </div>
               {isSabiSquareOpen ? (
@@ -304,26 +288,7 @@ export default function AppLayout({ children }: AppLayoutProps) {
             );
           })}
 
-          {/* Vendor Items */}
-          {vendorItems.map((item) => {
-            const isActive = location === item.href;
-            return (
-              <Link 
-                key={item.href} 
-                href={item.href}
-                className={cn(
-                  "flex items-center gap-3 px-4 py-3 rounded-xl transition-all duration-200 group",
-                  isActive 
-                    ? "bg-primary text-white font-semibold shadow-md shadow-primary/20" 
-                    : "text-slate-400 hover:bg-white/5 hover:text-white"
-                )}
-                onClick={() => setIsSidebarOpen(false)}
-              >
-                <item.icon className={cn("h-5 w-5", isActive ? "text-white" : "text-slate-500 group-hover:text-white")} />
-                {item.label}
-              </Link>
-            );
-          })}
+          {/* Vendor items removed */}
         </nav>
 
         <div className="p-4 border-t border-slate-800">

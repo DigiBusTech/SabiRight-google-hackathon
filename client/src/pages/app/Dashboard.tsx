@@ -371,43 +371,7 @@ export default function Dashboard() {
             </Card>
           </motion.div>
 
-          {/* Verified Services Near You */}
-          <motion.div variants={itemVariants}>
-            <div className="flex items-center justify-between mb-4">
-              <h3 className="text-lg font-bold">Verified Services Near You</h3>
-              <Link href="/app/marketplace">
-                <Button variant="ghost" size="sm" className="text-primary text-xs">View All</Button>
-              </Link>
-            </div>
-            
-            <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
-              {[
-                { name: "Barr. Nnamdi", role: "Legal Practitioner", dist: "0.4km", time: "5min", icon: Scale },
-                { name: "FixIt Pro", role: "Plumber", dist: "1.2km", time: "12min", icon: MapPin },
-                { name: "SafeMove Logistics", role: "Movers", dist: "3.5km", time: "25min", icon: TrendingUp },
-                { name: "MediCare Clinic", role: "Health", dist: "0.8km", time: "8min", icon: ShieldCheck },
-              ].map((service, i) => (
-                <motion.div 
-                  key={i} 
-                  whileHover={{ scale: 1.02, x: 5 }}
-                  className="flex items-start gap-3 p-3 rounded-xl border bg-white hover:border-primary/50 transition-colors cursor-pointer group"
-                >
-                  <div className="h-10 w-10 rounded-full bg-slate-100 flex items-center justify-center group-hover:bg-primary group-hover:text-white transition-colors flex-shrink-0">
-                    <service.icon className="h-5 w-5 text-slate-500 group-hover:text-white" />
-                  </div>
-                  <div className="min-w-0 flex-1">
-                    <h4 className="font-bold text-sm truncate">{service.name}</h4>
-                    <p className="text-xs text-slate-500">{service.role}</p>
-                    <div className="flex items-center gap-2 mt-1 text-[10px] font-bold text-slate-400">
-                      <span className="text-green-600 bg-green-50 px-1.5 py-0.5 rounded flex-shrink-0">{service.dist}</span>
-                      <span>•</span>
-                      <span className="truncate">{service.time} away</span>
-                    </div>
-                  </div>
-                </motion.div>
-              ))}
-            </div>
-          </motion.div>
+          {/* Verified Services removed */}
 
           {/* Quick Actions Grid */}
           <div className="grid grid-cols-2 sm:grid-cols-2 lg:grid-cols-3 gap-3" id="quick-actions">
@@ -427,63 +391,13 @@ export default function Dashboard() {
               </motion.div>
             )}
 
-            {profile?.isVendor && (
-              <motion.div variants={itemVariants} whileHover={{ scale: 1.02 }}>
-                <Link href="/app/vendor">
-                  <Card className="bg-orange-50 border-orange-100 hover:border-orange-300 transition-colors cursor-pointer h-full">
-                    <CardContent className="p-4 flex items-start gap-3 md:flex-col md:items-start md:gap-0">
-                      <Store className="h-6 w-6 text-orange-600 mb-0 md:mb-2 flex-shrink-0" />
-                      <div>
-                        <h4 className="font-bold text-sm mb-1">Vendor Portal</h4>
-                        <p className="text-xs text-slate-600">Manage your business & leads</p>
-                      </div>
-                    </CardContent>
-                  </Card>
-                </Link>
-              </motion.div>
-            )}
+            {/* Vendor portal removed */}
 
-            <motion.div variants={itemVariants} whileHover={{ scale: 1.02 }}>
-              <Link href="/app/jobs">
-                <Card className="bg-blue-50 border-blue-100 hover:border-blue-300 transition-colors cursor-pointer h-full">
-                  <CardContent className="p-4 flex items-start gap-3 md:flex-col md:items-start md:gap-0">
-                    <Briefcase className="h-6 w-6 text-blue-600 mb-0 md:mb-2 flex-shrink-0" />
-                    <div>
-                      <h4 className="font-bold text-sm mb-1">Job Matches</h4>
-                      <p className="text-xs text-slate-600">{MOCK_JOBS.length} new matches based on your profile</p>
-                    </div>
-                  </CardContent>
-                </Card>
-              </Link>
-            </motion.div>
+            {/* Jobs card removed */}
             
-            <motion.div variants={itemVariants} whileHover={{ scale: 1.02 }}>
-              <Link href="/app/events">
-                <Card className="bg-purple-50 border-purple-100 hover:border-purple-300 transition-colors cursor-pointer h-full">
-                  <CardContent className="p-4 flex items-start gap-3 md:flex-col md:items-start md:gap-0">
-                    <Calendar className="h-6 w-6 text-purple-600 mb-0 md:mb-2 flex-shrink-0" />
-                    <div>
-                      <h4 className="font-bold text-sm mb-1">Events</h4>
-                      <p className="text-xs text-slate-600">Upcoming civic events near you</p>
-                    </div>
-                  </CardContent>
-                </Card>
-              </Link>
-            </motion.div>
+            {/* Events card removed */}
             
-            <motion.div variants={itemVariants} whileHover={{ scale: 1.02 }}>
-              <Link href="/app/marketplace">
-                <Card className="bg-green-50 border-green-100 hover:border-green-300 transition-colors cursor-pointer h-full">
-                  <CardContent className="p-4 flex items-start gap-3 md:flex-col md:items-start md:gap-0">
-                    <Users className="h-6 w-6 text-green-600 mb-0 md:mb-2 flex-shrink-0" />
-                    <div>
-                      <h4 className="font-bold text-sm mb-1">Marketplace</h4>
-                      <p className="text-xs text-slate-600">Find verified professionals nearby</p>
-                    </div>
-                  </CardContent>
-                </Card>
-              </Link>
-            </motion.div>
+            {/* Marketplace card removed */}
             
             <motion.div variants={itemVariants} whileHover={{ scale: 1.02 }}>
               <Link href="/app/forum">

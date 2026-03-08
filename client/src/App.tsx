@@ -22,17 +22,11 @@ import Contact from "@/pages/Contact";
 import AppLayout from "@/pages/app/Layout";
 import Dashboard from "@/pages/app/Dashboard";
 import CivicGuard from "@/pages/app/Civic";
-import Marketplace from "@/pages/app/Marketplace";
-import Jobs from "@/pages/app/Jobs";
 import Forum from "@/pages/app/Forum";
-import Events from "@/pages/app/Events";
 import PlanManagement from "@/pages/app/PlanManagement";
 import TrafficAlerts from "@/pages/app/TrafficAlerts";
 import EmailVerification from "@/pages/app/EmailVerification";
-import VendorDashboard from "@/pages/app/VendorDashboard";
 import Wallet from "@/pages/app/Wallet";
-import Bookings from "@/pages/app/Bookings";
-import BookingDetail from "@/pages/app/BookingDetail";
 import AdminDashboard from "@/pages/admin/AdminDashboard";
 import Login from "@/pages/auth/Login";
 import LegalPage from "@/pages/LegalPage";
@@ -68,17 +62,8 @@ function Router() {
       <Route path="/app/civic">
         <AppLayout><CivicGuard /></AppLayout>
       </Route>
-      <Route path="/app/marketplace">
-        <AppLayout><Marketplace /></AppLayout>
-      </Route>
-      <Route path="/app/jobs">
-        <AppLayout><Jobs /></AppLayout>
-      </Route>
       <Route path="/app/forum">
         <AppLayout><Forum /></AppLayout>
-      </Route>
-      <Route path="/app/events">
-        <AppLayout><Events /></AppLayout>
       </Route>
       <Route path="/app/plans">
         <AppLayout><PlanManagement /></AppLayout>
@@ -89,17 +74,8 @@ function Router() {
       <Route path="/app/verify-email">
         <AppLayout><EmailVerification /></AppLayout>
       </Route>
-      <Route path="/app/vendor">
-        <AppLayout><VendorDashboard /></AppLayout>
-      </Route>
       <Route path="/app/wallet">
         <AppLayout><Wallet /></AppLayout>
-      </Route>
-      <Route path="/app/bookings">
-        <AppLayout><Bookings /></AppLayout>
-      </Route>
-      <Route path="/app/bookings/:id">
-        <AppLayout><BookingDetail /></AppLayout>
       </Route>
       <Route path="/app/settings">
         <AppLayout><Settings /></AppLayout>

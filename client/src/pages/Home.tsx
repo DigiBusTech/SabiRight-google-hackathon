@@ -307,8 +307,7 @@ export default function Home() {
             <div className="space-y-4 font-bold text-slate-700">
               <p className="flex items-center gap-3"><span className="text-green-500">✔</span> Curated AI Job Matching Board</p>
               <p className="flex items-center gap-3"><span className="text-green-500">✔</span> Lawful Civic Education & Support</p>
-              <p className="flex items-center gap-3"><span className="text-green-500">✔</span> Marketplace for Verified Pros</p>
-              <p className="flex items-center gap-3"><span className="text-green-500">✔</span> Community Forum & Civic Events</p>
+              <p className="flex items-center gap-3"><span className="text-green-500">✔</span> Community Forum</p>
             </div>
           </motion.div>
           
@@ -336,7 +335,7 @@ export default function Home() {
                   <MapPin className="h-6 w-6" />
                 </div>
                 <div>
-                  <p className="font-bold">Proximity Marketplace</p>
+                  <p className="font-bold">Community & Civic Guidance</p>
                   <p className="text-sm text-slate-400">Real-life Google Maps route data matching for experts.</p>
                 </div>
               </div>
@@ -480,7 +479,7 @@ export default function Home() {
               { icon: Scale, color: "bg-primary", borderColor: "border-primary", title: "SabiGuard", desc: "Legal First Aid & Expert Advice powered by AI. Know your rights instantly.", badge: "Sabi Doctor" },
               { icon: MapPin, color: "bg-green-600", borderColor: "border-green-600", title: "SabiMove", desc: "Smart Traffic, Cloaked Routes & Checkpoint alerts. Navigate safely.", badge: "Sabi Navigator" },
               { icon: Search, color: "bg-purple-600", borderColor: "border-purple-600", title: "SabiMarket", desc: "Proximity-based Verified Professionals marketplace. Find trusted pros.", badge: "Find Pros" },
-              { icon: Users, color: "bg-pink-600", borderColor: "border-pink-600", title: "SabiSquare", desc: "AI Jobs, Forums, and Events. Connect, learn, and earn.", badge: "The Hub" }
+              { icon: Users, color: "bg-pink-600", borderColor: "border-pink-600", title: "SabiSquare", desc: "Community Forum and Civic knowledge hub.", badge: "The Hub" }
             ].map((pillar, i) => (
               <motion.div 
                 key={i}

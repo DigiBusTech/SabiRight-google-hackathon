@@ -488,11 +488,9 @@ export default function Payment() {
           const publicKey = flutterwaveGateway?.publicKey;
           
           if (!publicKey) {
-            console.error('Flutterwave public key not found!');
-            console.error('flutterwaveGateway:', flutterwaveGateway);
             toast({
               title: "Configuration Error",
-              description: "Flutterwave public key not found. Please check admin configuration.",
+              description: "Flutterwave is not properly configured.",
               variant: "destructive"
             });
             return;

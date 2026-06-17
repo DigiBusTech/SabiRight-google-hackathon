@@ -36,16 +36,16 @@ SabiRight is engineered for low-latency system responses, secure data workflows,
 
 * **Core AI & RAG Orchestration:** **Gemini API / Vertex AI** utilizing long-context windows for deep document processing, text embedding, and automated synthesis of structured pre-case files.
 * **Geospatial & Proximity Intelligence:** **Google Maps Platform** utilizing **Places API** and **Distance Matrix API** to compute, rank, and route users to local professionals within the Proximity Matching Directory.
-* **Backend Core Architecture:** **Laravel API / Node.js** architected for highly secure transactional routing, API gateways, and asynchronous lead distribution queues.
+* **Backend Core Architecture:** **google firestore / Node.js** architected for highly secure transactional routing, API gateways, and asynchronous lead distribution queues.
 * **Frontend Experience:** **React** structured as a lightweight, cross-platform single-page application optimized for rapid mobile interface rendering.
-* **Database & Infrastructure:** **Google Cloud SQL (MySQL)** managing relational database models for user profiles, verified professional accounts, active dispute tracking, and system audit trails.
+* **Database & Infrastructure:** **Google Cloud firestore** managing relational database models for user profiles, verified professional accounts, active dispute tracking, and system audit trails.
 
 ---
 
 ## 📐 System Architecture Flow
 
 ```text
-[ Citizen / Immigrant ] ──> ( React UI ) ──> [ Laravel / Node.js Backend API ]
+[ Citizen / Immigrant ] ──> ( React UI ) ──> [ Google firestore / Node.js Backend API ]
                                                    │                 │
      ┌─────────────────────────────────────────────┘                 └────────────────────────┐
      ▼                                                                                        ▼
@@ -130,7 +130,7 @@ To set up the first admin user:
 - Chat storage limits are enforced at the API level (Default 512KB).
 
 
-The API server will launch at http://127.0.0.1:8000.5. Frontend Development Server Setup
+The API server will launch at http://127.0.0.1:5000 Frontend Development Server Setup
 Open a separate terminal window, navigate to the React source folder, and install user interface dependencies:
 Bashcd ../frontend
 npm install

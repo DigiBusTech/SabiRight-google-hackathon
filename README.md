@@ -59,7 +59,7 @@ SabiRight is engineered for low-latency system responses, secure data workflows,
                                                                    (Paid B2B Directory & Qualified Lead)
 📁 Repository StructurePlaintextSabiRight-google-hackathon/
 ├── ai-engine/              # Prompts, grounding data structures, and RAG pipelines
-├── backend/                # API Gateway (Laravel / Node.js core backend code)
+├── backend/                # API Gateway (Firestore / Node.js core backend code)
 │   ├── app/                # Core business logic & Matching Services
 │   ├── config/             # Cloud Integration Configurations
 │   ├── database/           # Migrations and Seeds for verified data nodes & directories
